@@ -1,0 +1,24 @@
+# R
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+*.Rproj
+*.Rproj.user
+.DS_Store
+
+# R Markdown
+*.html
+*.pdf
+*.docx
+*.pptx
+
+# Knitr
+*.utf8.md
+*.knit.md
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
