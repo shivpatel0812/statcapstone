@@ -1,0 +1,869 @@
+---
+title: "NHANES Data Analysis - Combined Overview"
+author: "STAT Capstone Project"
+date: "`r Sys.Date()`"
+output:
+  html_notebook:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6
+)
+```
+
+```{r load-packages}
+library(haven)
+library(dplyr)
+library(ggplot2)
+```
+
+# Data Loading
+
+```{r load-all-data}
+dr1iff <- read_xpt("DR1IFF_L (1).xpt")
+paq <- read_xpt("PAQ_L (2).xpt")
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+cat("DR1IFF: ", nrow(dr1iff), " rows, ", ncol(dr1iff), " columns\n")
+cat("PAQ: ", nrow(paq), " rows, ", ncol(paq), " columns\n")
+cat("DBQ: ", nrow(dbq), " rows, ", ncol(dbq), " columns\n")
+
+cat("\nChecking DR1IFF variables...\n")
+if("DR1IKCAL" %in% names(dr1iff)) {
+  cat("DR1IKCAL found\n")
+} else {
+  cat("DR1IKCAL NOT found. Available variables:\n")
+  print(head(names(dr1iff), 20))
+}
+```
+
+# Dataset 1: DR1IFF - Dietary Interview Day 1
+
+## Variables Overview
+
+```{r dr1iff-variables}
+library(haven)
+library(dplyr)
+library(tidyr)
+
+dr1iff_data <- read_xpt("DR1IFF_L (1).xpt")
+
+# Key variable name mappings (most important ones)
+key_var_names <- data.frame(
+  variable = c("SEQN", "WTDRD1", "WTDR2D", "DR1ILINE", "DR1DRSTZ", "DR1EXMER", 
+               "DRABF", "DRDINT", "DR1DBIH", "DR1DAY", "DR1LANG", "DR1CCMNM", 
+               "DR1CCMTX", "DR1_020", "DR1_030Z", "DR1FS", "DR1_040Z", "DR1IFDCD",
+               "DR1IGRMS", "DR1IKCAL", "DR1IPROT", "DR1ICARB", "DR1ISUGR", "DR1IFIBE",
+               "DR1ITFAT", "DR1ISFAT", "DR1IMFAT", "DR1IPFAT", "DR1ICHOL", "DR1IATOC",
+               "DR1IATOA", "DR1IRET", "DR1IVARA", "DR1IACAR", "DR1IBCAR", "DR1ICRYP",
+               "DR1ILYCO", "DR1IVB1", "DR1IVB2", "DR1INIAC", "DR1IVB6", "DR1IFOLA",
+               "DR1IVB12", "DR1IVC", "DR1IVD", "DR1IVK", "DR1ICALC", "DR1IPHOS",
+               "DR1IMAGN", "DR1IIRON", "DR1IZINC", "DR1ICOPP", "DR1ISODI", "DR1IPOTA",
+               "DR1ISELE", "DR1ICAFF", "DR1ITHEO", "DR1IALCO"),
+  description = c(
+    "Respondent sequence number",
+    "Dietary day one sample weight",
+    "Dietary two-day sample weight",
+    "Food/Individual component number",
+    "Dietary recall status",
+    "Interviewer ID code",
+    "Breast-fed infant (either day)",
+    "Number of days of intake",
+    "Days between intake and HH interview",
+    "Day of week of intake",
+    "Language of interview",
+    "Combination food number",
+    "Combination food type",
+    "Time of first eating occasion",
+    "Time of first eating occasion (minutes)",
+    "Food source",
+    "Time of eating occasion (minutes)",
+    "Food code",
+    "Amount consumed (grams)",
+    "Energy (kcal)",
+    "Protein (g)",
+    "Carbohydrates (g)",
+    "Total sugars (g)",
+    "Dietary fiber (g)",
+    "Total fat (g)",
+    "Saturated fatty acids (g)",
+    "Monounsaturated fatty acids (g)",
+    "Polyunsaturated fatty acids (g)",
+    "Cholesterol (mg)",
+    "Vitamin E as alpha-tocopherol (mg)",
+    "Vitamin E as added alpha-tocopherol (mg)",
+    "Retinol (mcg)",
+    "Vitamin A, RAE (mcg)",
+    "Alpha-carotene (mcg)",
+    "Beta-carotene (mcg)",
+    "Beta-cryptoxanthin (mcg)",
+    "Lycopene (mcg)",
+    "Thiamin (Vitamin B1) (mg)",
+    "Riboflavin (Vitamin B2) (mg)",
+    "Niacin (mg)",
+    "Vitamin B6 (mg)",
+    "Folate, DFE (mcg)",
+    "Vitamin B12 (mcg)",
+    "Vitamin C (mg)",
+    "Vitamin D (mcg)",
+    "Vitamin K (mcg)",
+    "Calcium (mg)",
+    "Phosphorus (mg)",
+    "Magnesium (mg)",
+    "Iron (mg)",
+    "Zinc (mg)",
+    "Copper (mg)",
+    "Sodium (mg)",
+    "Potassium (mg)",
+    "Selenium (mcg)",
+    "Caffeine (mg)",
+    "Theobromine (mg)",
+    "Alcohol (g)"
+  )
+)
+
+cat("Total variables:", ncol(dr1iff_data), "\n")
+cat("Total records:", nrow(dr1iff_data), "\n\n")
+
+# Show all variables with missing data counts
+missing_summary <- dr1iff_data %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "missing_count") %>%
+  mutate(
+    total_records = nrow(dr1iff_data),
+    missing_pct = (missing_count / total_records) * 100,
+    non_missing = total_records - missing_count
+  ) %>%
+  left_join(key_var_names, by = "variable") %>%
+  mutate(
+    description = ifelse(is.na(description), paste("Variable:", variable), description)
+  ) %>%
+  select(variable, description, missing_count, non_missing, missing_pct) %>%
+  arrange(desc(missing_count))
+
+print(missing_summary)
+
+cat("\nKey variable names:\n")
+for(i in 1:min(20, nrow(key_var_names))) {
+  cat("  -", key_var_names$variable[i], ":", key_var_names$description[i], "\n")
+}
+cat("  ... and", ncol(dr1iff_data) - 20, "more variables\n")
+```
+
+## Summary Statistics
+
+```{r dr1iff-summary}
+library(haven)
+library(dplyr)
+
+dr1iff_data <- read_xpt("DR1IFF_L (1).xpt")
+
+cat("Loaded dataset: ", nrow(dr1iff_data), " rows, ", ncol(dr1iff_data), " columns\n")
+cat("Has DR1IKCAL? ", "DR1IKCAL" %in% names(dr1iff_data), "\n\n")
+
+if("DR1IKCAL" %in% names(dr1iff_data) && nrow(dr1iff_data) > 100000) {
+  dr1iff_summary <- dr1iff_data %>%
+    summarise(
+      total_records = n(),
+      mean_calories = mean(DR1IKCAL, na.rm = TRUE),
+      mean_protein = mean(DR1IPROT, na.rm = TRUE),
+      mean_carbs = mean(DR1ICARB, na.rm = TRUE),
+      mean_fat = mean(DR1ITFAT, na.rm = TRUE),
+      mean_sugar = mean(DR1ISUGR, na.rm = TRUE),
+      mean_fiber = mean(DR1IFIBE, na.rm = TRUE),
+      mean_cholesterol = mean(DR1ICHOL, na.rm = TRUE)
+    )
+  print(dr1iff_summary)
+} else {
+  cat("ERROR: Wrong dataset loaded or variables missing!\n")
+  cat("Expected: ~100,000 rows, 84 columns\n")
+  cat("Got: ", nrow(dr1iff_data), " rows, ", ncol(dr1iff_data), " columns\n")
+  cat("First few variable names:\n")
+  print(head(names(dr1iff_data), 10))
+}
+```
+
+## Calories Distribution
+
+```{r dr1iff-calories-plot}
+library(haven)
+library(ggplot2)
+library(dplyr)
+
+dr1iff_data <- read_xpt("DR1IFF_L (1).xpt")
+
+if("DR1IKCAL" %in% names(dr1iff_data) && nrow(dr1iff_data) > 100000) {
+  # Aggregate by person to get daily totals
+  daily_totals <- dr1iff_data %>%
+    group_by(SEQN) %>%
+    summarise(
+      daily_calories = sum(DR1IKCAL, na.rm = TRUE)
+    )
+  
+  # Create 10 calorie groups with more granularity in middle ranges
+  max_cal <- max(daily_totals$daily_calories, na.rm = TRUE)
+  
+  # Create custom breaks: more splits in middle ranges (where most people are)
+  # Smaller bins: 0-1000, 1000-1500, 1500-2000, 2000-2500, 2500-3000
+  # Larger bins for higher ranges: 3000-4000, 4000-5000, 5000-6000, 6000-8000, 8000+
+  breaks <- c(0, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 8000, max_cal)
+  
+  # Create labels with calorie ranges
+  group_labels <- paste0(round(breaks[-length(breaks)], 0), "-", round(breaks[-1], 0), " kcal")
+  # Fix the last label to show "8000+"
+  group_labels[length(group_labels)] <- paste0("8000+ kcal")
+  
+  daily_totals <- daily_totals %>%
+    mutate(
+      calorie_group = cut(daily_calories, breaks = breaks, 
+                          include.lowest = TRUE, 
+                          labels = group_labels)
+    )
+  
+  # Calculate average calories per group and count of people
+  group_summary <- daily_totals %>%
+    group_by(calorie_group) %>%
+    summarise(
+      avg_calories = mean(daily_calories, na.rm = TRUE),
+      count_people = n(),
+      .groups = 'drop'
+    )
+  
+  print(group_summary)
+  
+  # Bar chart showing count of people in each group
+  ggplot(group_summary, aes(x = calorie_group, y = count_people)) +
+    geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7) +
+    geom_text(aes(label = count_people), vjust = -0.5, size = 3) +
+    labs(title = "Number of People in Each Calorie Group (10 Groups)",
+         x = "Calorie Range",
+         y = "Number of People",
+         subtitle = paste("Average calories per group shown in table above")) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+} else {
+  cat("ERROR: Wrong dataset or DR1IKCAL variable not available.\n")
+  cat("Dataset has", nrow(dr1iff_data), "rows and", ncol(dr1iff_data), "columns\n")
+}
+```
+
+# Dataset 2: PAQ - Physical Activity Questionnaire
+
+## Variables Overview
+
+```{r paq-variables}
+library(haven)
+library(dplyr)
+library(tidyr)
+
+paq <- read_xpt("PAQ_L (2).xpt")
+
+# Variable name mapping
+var_names <- data.frame(
+  variable = c("SEQN", "PAD790Q", "PAD790U", "PAD800", "PAD810Q", "PAD810U", "PAD820", "PAD680"),
+  description = c(
+    "Respondent sequence number",
+    "Work activity quantity",
+    "Work activity unit",
+    "Work activity minutes per week",
+    "Transportation activity quantity",
+    "Transportation activity unit",
+    "Transportation activity minutes per week",
+    "Total moderate-intensity work activity minutes per week"
+  )
+)
+
+cat("Total variables:", ncol(paq), "\n")
+cat("Total records:", nrow(paq), "\n\n")
+
+# Show all variables with missing data counts
+missing_summary <- paq %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "missing_count") %>%
+  mutate(
+    total_records = nrow(paq),
+    missing_pct = (missing_count / total_records) * 100,
+    non_missing = total_records - missing_count
+  ) %>%
+  left_join(var_names, by = "variable") %>%
+  select(variable, description, missing_count, non_missing, missing_pct) %>%
+  arrange(desc(missing_count))
+
+print(missing_summary)
+
+cat("\nAll variable names:\n")
+for(i in 1:nrow(var_names)) {
+  cat("  -", var_names$variable[i], ":", var_names$description[i], "\n")
+}
+```
+
+## Summary Statistics
+
+```{r paq-summary}
+paq <- read_xpt("PAQ_L (2).xpt")
+
+paq_summary <- paq %>%
+  summarise(
+    total_records = n(),
+    mean_work_minutes = mean(PAD800, na.rm = TRUE),
+    mean_transport_minutes = mean(PAD820, na.rm = TRUE),
+    mean_moderate_activity = mean(PAD680, na.rm = TRUE)
+  )
+print(paq_summary)
+```
+
+## Physical Activity Distribution
+
+```{r paq-activity-plot}
+library(haven)
+library(ggplot2)
+library(dplyr)
+
+paq <- read_xpt("PAQ_L (2).xpt")
+
+# Filter out missing values and extreme outliers
+paq_clean <- paq %>%
+  filter(!is.na(PAD680), PAD680 < 5000)
+
+# Create 10 activity groups with more granularity in lower ranges
+max_activity <- max(paq_clean$PAD680, na.rm = TRUE)
+
+# Create custom breaks: more splits in lower ranges (where most people are)
+# Smaller bins: 0-100, 100-200, 200-300, 300-400, 400-500, 500-600
+# Larger bins for higher ranges: 600-800, 800-1000, 1000-1500, 1500+
+breaks <- c(0, 100, 200, 300, 400, 500, 600, 800, 1000, 1500, max_activity)
+
+# Create labels with activity ranges
+group_labels <- paste0(round(breaks[-length(breaks)], 0), "-", round(breaks[-1], 0), " min/week")
+# Fix the last label
+group_labels[length(group_labels)] <- paste0("1500+ min/week")
+
+paq_clean <- paq_clean %>%
+  mutate(
+    activity_group = cut(PAD680, breaks = breaks, 
+                         include.lowest = TRUE, 
+                         labels = group_labels)
+  )
+
+# Calculate average activity per group and count of people
+group_summary <- paq_clean %>%
+  group_by(activity_group) %>%
+  summarise(
+    avg_minutes = mean(PAD680, na.rm = TRUE),
+    count_people = n(),
+    .groups = 'drop'
+  )
+
+print(group_summary)
+
+# Bar chart showing count of people in each group
+ggplot(group_summary, aes(x = activity_group, y = count_people)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_text(aes(label = count_people), vjust = -0.5, size = 3) +
+  labs(title = "Number of People in Each Activity Group (10 Groups)",
+       x = "Activity Range (Minutes per Week)",
+       y = "Number of People",
+       subtitle = paste("Average minutes per group shown in table above")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Dataset 3: DBQ - Diet Behavior Questionnaire
+
+## Variables Overview
+
+```{r dbq-variables}
+library(haven)
+library(dplyr)
+library(tidyr)
+
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+# Variable name mapping
+var_names <- data.frame(
+  variable = c("SEQN", "DBQ010", "DBD030", "DBD041", "DBD050", "DBD055", "DBD061",
+               "DBQ073A", "DBQ073B", "DBQ073C", "DBQ073D", "DBQ073E", "DBQ073U",
+               "DBQ301", "DBQ330", "DBQ360", "DBQ370", "DBD381", "DBQ390", "DBQ400",
+               "DBD411", "DBQ421", "DBQ424", "DBQ930", "DBQ935", "DBQ940", "DBQ945"),
+  description = c(
+    "Respondent sequence number",
+    "How healthy is your diet",
+    "Days since last ate fish",
+    "Days since last ate beans",
+    "Days since last ate peanuts",
+    "Days since last ate other nuts",
+    "Days since last ate seeds",
+    "Frequency: meals from fast food/pizza place",
+    "Frequency: meals from restaurant with waiter",
+    "Frequency: meals from restaurant without waiter",
+    "Frequency: meals from store (deli/supermarket)",
+    "Frequency: meals from vending machine",
+    "Frequency: meals from other source",
+    "How often do you eat meals from fast food/pizza place",
+    "How often do you eat meals from restaurant with waiter",
+    "How often do you eat meals from restaurant without waiter",
+    "How often do you eat meals from store (deli/supermarket)",
+    "Days since last ate meals from store",
+    "How often do you eat meals from vending machine",
+    "How often do you eat meals from other source",
+    "Days since last ate meals from other source",
+    "How often do you eat meals prepared away from home",
+    "How often do you eat meals prepared away from home (past 7 days)",
+    "How often do you eat meals prepared away from home (past 30 days)",
+    "How often do you eat meals prepared away from home (past 12 months)",
+    "How often do you eat meals prepared away from home (lifetime)",
+    "How often do you eat meals prepared away from home (other)"
+  )
+)
+
+cat("Total variables:", ncol(dbq), "\n")
+cat("Total records:", nrow(dbq), "\n\n")
+
+# Show all variables with missing data counts
+missing_summary <- dbq %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "missing_count") %>%
+  mutate(
+    total_records = nrow(dbq),
+    missing_pct = (missing_count / total_records) * 100,
+    non_missing = total_records - missing_count
+  ) %>%
+  left_join(var_names, by = "variable") %>%
+  select(variable, description, missing_count, non_missing, missing_pct) %>%
+  arrange(desc(missing_count))
+
+print(missing_summary)
+
+cat("\nAll variable names:\n")
+for(i in 1:nrow(var_names)) {
+  cat("  -", var_names$variable[i], ":", var_names$description[i], "\n")
+}
+```
+
+## Summary Statistics
+
+```{r dbq-summary}
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+dbq_summary <- dbq %>%
+  summarise(
+    total_records = n(),
+    mean_diet_health = mean(DBQ010, na.rm = TRUE),
+    mean_days_since_fish = mean(DBD030, na.rm = TRUE),
+    mean_days_since_beans = mean(DBD041, na.rm = TRUE),
+    mean_days_since_peanuts = mean(DBD050, na.rm = TRUE)
+  )
+print(dbq_summary)
+```
+
+## Diet Health Rating Distribution
+
+```{r dbq-health-plot}
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+dbq_health <- dbq %>%
+  filter(!is.na(DBQ010)) %>%
+  count(DBQ010) %>%
+  mutate(health_label = case_when(
+    DBQ010 == 1 ~ "Excellent",
+    DBQ010 == 2 ~ "Very Good",
+    DBQ010 == 3 ~ "Good",
+    DBQ010 == 4 ~ "Fair",
+    DBQ010 == 5 ~ "Poor"
+  ))
+
+ggplot(dbq_health, aes(x = reorder(health_label, DBQ010), y = n)) +
+  geom_bar(stat = "identity", fill = "coral", alpha = 0.7) +
+  labs(title = "Distribution of Self-Reported Diet Health",
+       x = "Diet Health Rating",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Combined Analysis
+
+## Linking Datasets by SEQN
+
+```{r combined-overview}
+library(haven)
+library(dplyr)
+
+dr1iff <- read_xpt("DR1IFF_L (1).xpt")
+paq <- read_xpt("PAQ_L (2).xpt")
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+cat("=== ID Variable: SEQN (Respondent Sequence Number) ===\n\n")
+
+# Get unique SEQN from each dataset
+dr1iff_seqn <- unique(dr1iff$SEQN)
+paq_seqn <- unique(paq$SEQN)
+dbq_seqn <- unique(dbq$SEQN)
+
+cat("Unique people in each dataset:\n")
+cat("  DR1IFF:", length(dr1iff_seqn), "people\n")
+cat("  PAQ:", length(paq_seqn), "people\n")
+cat("  DBQ:", length(dbq_seqn), "people\n\n")
+
+# Find overlaps
+common_all <- intersect(intersect(dr1iff_seqn, paq_seqn), dbq_seqn)
+common_dr1iff_paq <- intersect(dr1iff_seqn, paq_seqn)
+common_dr1iff_dbq <- intersect(dr1iff_seqn, dbq_seqn)
+common_paq_dbq <- intersect(paq_seqn, dbq_seqn)
+
+cat("Overlap between datasets:\n")
+cat("  All 3 datasets:", length(common_all), "people\n")
+cat("  DR1IFF + PAQ:", length(common_dr1iff_paq), "people\n")
+cat("  DR1IFF + DBQ:", length(common_dr1iff_dbq), "people\n")
+cat("  PAQ + DBQ:", length(common_paq_dbq), "people\n\n")
+
+cat("Coverage:\n")
+cat("  DR1IFF people also in DBQ:", round(length(common_dr1iff_dbq)/length(dr1iff_seqn)*100, 1), "%\n")
+cat("  PAQ people also in DBQ:", round(length(common_paq_dbq)/length(paq_seqn)*100, 1), "%\n")
+cat("  People in all 3 datasets:", round(length(common_all)/length(dbq_seqn)*100, 1), "% of DBQ\n\n")
+
+if(length(common_all) > 0) {
+  cat("Sample of common SEQN (people in all 3 datasets):\n")
+  cat("  ", paste(head(common_all, 10), collapse = ", "), "\n")
+  cat("\n✓ SEQN can be used to link/merge all three datasets!\n")
+  cat("  You can merge on SEQN to combine dietary, activity, and behavior data.\n")
+}
+```
+
+## Merging and Exploring Linked Data
+
+```{r merge-datasets}
+library(haven)
+library(dplyr)
+
+dr1iff_data <- read_xpt("DR1IFF_L (1).xpt")
+paq <- read_xpt("PAQ_L (2).xpt")
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+dr1iff_subset <- dr1iff_data %>%
+  select(SEQN, DR1IKCAL, DR1IPROT, DR1ICARB, DR1ITFAT, DR1ISUGR, DR1IFIBE, DR1ICHOL)
+
+dr1iff_person <- dr1iff_subset %>%
+  group_by(SEQN) %>%
+  summarise(
+    total_calories = sum(DR1IKCAL, na.rm = TRUE),
+    total_protein = sum(DR1IPROT, na.rm = TRUE),
+    total_carbs = sum(DR1ICARB, na.rm = TRUE),
+    total_fat = sum(DR1ITFAT, na.rm = TRUE),
+    total_sugar = sum(DR1ISUGR, na.rm = TRUE),
+    total_fiber = sum(DR1IFIBE, na.rm = TRUE),
+    total_cholesterol = sum(DR1ICHOL, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+merged_data <- dr1iff_person %>%
+  left_join(paq, by = "SEQN") %>%
+  left_join(dbq, by = "SEQN")
+
+cat("Combined dataset: ", nrow(merged_data), " people, ", ncol(merged_data), " variables\n")
+
+merged_data
+```
+
+## Combined Dataset Exploration
+
+```{r combined-exploration}
+library(dplyr)
+library(tidyr)
+
+# Variable name mapping for all variables in merged dataset
+var_descriptions <- data.frame(
+  variable = c("SEQN", "total_calories", "total_protein", "total_carbs", "total_fat", 
+               "total_sugar", "total_fiber", "total_cholesterol", "PAD790Q", "PAD790U",
+               "PAD800", "PAD810Q", "PAD810U", "PAD820", "PAD680", "DBQ010", "DBD030",
+               "DBD041", "DBD050", "DBD055", "DBD061", "DBQ073A", "DBQ073B", "DBQ073C",
+               "DBQ073D", "DBQ073E", "DBQ073U", "DBQ301", "DBQ330", "DBQ360", "DBQ370",
+               "DBD381", "DBQ390", "DBQ400", "DBD411", "DBQ421", "DBQ424", "DBQ930",
+               "DBQ935", "DBQ940", "DBQ945"),
+  description = c(
+    "Respondent sequence number",
+    "Total calories per day (kcal)",
+    "Total protein per day (g)",
+    "Total carbohydrates per day (g)",
+    "Total fat per day (g)",
+    "Total sugar per day (g)",
+    "Total dietary fiber per day (g)",
+    "Total cholesterol per day (mg)",
+    "Work activity quantity",
+    "Work activity unit",
+    "Work activity minutes per week",
+    "Transportation activity quantity",
+    "Transportation activity unit",
+    "Transportation activity minutes per week",
+    "Total moderate-intensity activity minutes per week",
+    "How healthy is your diet",
+    "Days since last ate fish",
+    "Days since last ate beans",
+    "Days since last ate peanuts",
+    "Days since last ate other nuts",
+    "Days since last ate seeds",
+    "Frequency: meals from fast food/pizza place",
+    "Frequency: meals from restaurant with waiter",
+    "Frequency: meals from restaurant without waiter",
+    "Frequency: meals from store (deli/supermarket)",
+    "Frequency: meals from vending machine",
+    "Frequency: meals from other source",
+    "How often: meals from fast food/pizza place",
+    "How often: meals from restaurant with waiter",
+    "How often: meals from restaurant without waiter",
+    "How often: meals from store (deli/supermarket)",
+    "Days since last ate meals from store",
+    "How often: meals from vending machine",
+    "How often: meals from other source",
+    "Days since last ate meals from other source",
+    "How often: meals prepared away from home",
+    "How often: meals prepared away from home (past 7 days)",
+    "How often: meals prepared away from home (past 30 days)",
+    "How often: meals prepared away from home (past 12 months)",
+    "How often: meals prepared away from home (lifetime)",
+    "How often: meals prepared away from home (other)"
+  )
+)
+
+cat("=== COMBINED DATASET OVERVIEW ===\n\n")
+
+cat("1. Dataset Dimensions:\n")
+cat("   Rows (people):", nrow(merged_data), "\n")
+cat("   Columns (variables):", ncol(merged_data), "\n")
+cat("   Total data points:", nrow(merged_data) * ncol(merged_data), "\n\n")
+
+cat("2. All Variable Names:\n")
+var_names_with_desc <- var_descriptions %>%
+  filter(variable %in% names(merged_data)) %>%
+  mutate(full_name = paste0(variable, " - ", description))
+print(var_names_with_desc %>% select(variable, description))
+cat("\n")
+
+cat("3. Missing Values Summary:\n")
+missing_summary <- merged_data %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "missing_count") %>%
+  mutate(
+    total_obs = nrow(merged_data),
+    missing_pct = (missing_count / total_obs) * 100,
+    non_missing = total_obs - missing_count
+  ) %>%
+  left_join(var_descriptions, by = "variable") %>%
+  mutate(
+    description = ifelse(is.na(description), paste("Variable:", variable), description)
+  ) %>%
+  select(variable, description, missing_count, non_missing, missing_pct) %>%
+  arrange(desc(missing_count))
+
+print(missing_summary)
+cat("\n")
+
+cat("4. Total Missing Values:\n")
+cat("   Total missing:", sum(missing_summary$missing_count), "\n")
+cat("   Percentage missing:", round(sum(missing_summary$missing_count) / (nrow(merged_data) * ncol(merged_data)) * 100, 2), "%\n\n")
+
+cat("5. Variables with No Missing Data:\n")
+complete_vars <- missing_summary %>%
+  filter(missing_count == 0) %>%
+  select(variable, description)
+print(complete_vars)
+cat("   Count:", nrow(complete_vars), "variables\n\n")
+
+cat("6. Variables with Most Missing Data (Top 10):\n")
+print(head(missing_summary %>% select(variable, description, missing_count, missing_pct), 10))
+cat("\n")
+
+cat("7. Data Structure:\n")
+str(merged_data, give.attr = FALSE, list.len = 10)
+cat("\n")
+
+cat("8. Summary Statistics (Key Variables):\n")
+if("total_calories" %in% names(merged_data)) {
+  key_summary <- merged_data %>%
+    select(SEQN, total_calories, total_protein, total_fat, PAD680, DBQ010) %>%
+    summarise(
+      people_with_calories = sum(!is.na(total_calories)),
+      people_with_activity = sum(!is.na(PAD680)),
+      people_with_diet_health = sum(!is.na(DBQ010)),
+      mean_calories = mean(total_calories, na.rm = TRUE),
+      mean_activity = mean(PAD680, na.rm = TRUE),
+      mean_diet_health = mean(DBQ010, na.rm = TRUE)
+    )
+  print(key_summary)
+}
+cat("\n")
+
+cat("9. Sample of Combined Data (First 10 rows, key columns):\n")
+sample_cols <- c("SEQN", "total_calories", "total_protein", "PAD680", "DBQ010")
+available_cols <- sample_cols[sample_cols %in% names(merged_data)]
+if(length(available_cols) > 0) {
+  print(head(merged_data %>% select(all_of(available_cols)), 10))
+}
+cat("\n")
+
+cat("10. People with Data in Multiple Datasets:\n")
+overlap_summary <- merged_data %>%
+  summarise(
+    total_people = n(),
+    has_dietary = sum(!is.na(total_calories)),
+    has_activity = sum(!is.na(PAD680)),
+    has_behavior = sum(!is.na(DBQ010)),
+    has_dietary_and_activity = sum(!is.na(total_calories) & !is.na(PAD680)),
+    has_dietary_and_behavior = sum(!is.na(total_calories) & !is.na(DBQ010)),
+    has_activity_and_behavior = sum(!is.na(PAD680) & !is.na(DBQ010)),
+    has_all_three = sum(!is.na(total_calories) & !is.na(PAD680) & !is.na(DBQ010))
+  )
+print(overlap_summary)
+cat("\n")
+
+cat("11. Data Completeness by Person:\n")
+completeness <- merged_data %>%
+  mutate(
+    total_vars = ncol(merged_data),
+    missing_count = rowSums(is.na(select(., -SEQN))),
+    complete_count = total_vars - missing_count - 1,
+    completeness_pct = (complete_count / (total_vars - 1)) * 100
+  ) %>%
+  select(SEQN, missing_count, complete_count, completeness_pct)
+
+completeness_summary <- completeness %>%
+  summarise(
+    people_with_no_missing = sum(missing_count == 0),
+    people_with_90pct_complete = sum(completeness_pct >= 90),
+    people_with_80pct_complete = sum(completeness_pct >= 80),
+    people_with_70pct_complete = sum(completeness_pct >= 70),
+    people_with_50pct_complete = sum(completeness_pct >= 50),
+    mean_completeness = mean(completeness_pct),
+    median_completeness = median(completeness_pct)
+  )
+print(completeness_summary)
+cat("\n")
+
+cat("Distribution of Completeness:\n")
+completeness_dist <- completeness %>%
+  mutate(completeness_group = case_when(
+    completeness_pct == 100 ~ "100% (Complete)",
+    completeness_pct >= 90 ~ "90-99%",
+    completeness_pct >= 80 ~ "80-89%",
+    completeness_pct >= 70 ~ "70-79%",
+    completeness_pct >= 50 ~ "50-69%",
+    TRUE ~ "<50%"
+  )) %>%
+  count(completeness_group) %>%
+  arrange(desc(completeness_group))
+print(completeness_dist)
+cat("\n")
+
+cat("Sample of most complete records (top 10):\n")
+print(head(completeness %>% arrange(desc(completeness_pct)), 10))
+```
+
+## Completeness: DR1IFF + PAQ Only (Excluding DBQ)
+
+```{r completeness-diet-activity}
+library(haven)
+library(dplyr)
+
+dr1iff_data <- read_xpt("DR1IFF_L (1).xpt")
+paq <- read_xpt("PAQ_L (2).xpt")
+
+dr1iff_subset <- dr1iff_data %>%
+  select(SEQN, DR1IKCAL, DR1IPROT, DR1ICARB, DR1ITFAT, DR1ISUGR, DR1IFIBE, DR1ICHOL)
+
+dr1iff_person <- dr1iff_subset %>%
+  group_by(SEQN) %>%
+  summarise(
+    total_calories = sum(DR1IKCAL, na.rm = TRUE),
+    total_protein = sum(DR1IPROT, na.rm = TRUE),
+    total_carbs = sum(DR1ICARB, na.rm = TRUE),
+    total_fat = sum(DR1ITFAT, na.rm = TRUE),
+    total_sugar = sum(DR1ISUGR, na.rm = TRUE),
+    total_fiber = sum(DR1IFIBE, na.rm = TRUE),
+    total_cholesterol = sum(DR1ICHOL, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+merged_diet_activity <- dr1iff_person %>%
+  left_join(paq, by = "SEQN")
+
+cat("=== DR1IFF + PAQ Only (No DBQ) ===\n\n")
+cat("Total people:", nrow(merged_diet_activity), "\n")
+cat("Total variables:", ncol(merged_diet_activity), "\n\n")
+
+completeness_da <- merged_diet_activity %>%
+  mutate(
+    total_vars = ncol(merged_diet_activity),
+    missing_count = rowSums(is.na(select(., -SEQN))),
+    complete_count = total_vars - missing_count - 1,
+    completeness_pct = (complete_count / (total_vars - 1)) * 100
+  ) %>%
+  select(SEQN, missing_count, complete_count, completeness_pct)
+
+completeness_summary_da <- completeness_da %>%
+  summarise(
+    people_with_no_missing = sum(missing_count == 0),
+    people_with_90pct_complete = sum(completeness_pct >= 90),
+    people_with_80pct_complete = sum(completeness_pct >= 80),
+    people_with_70pct_complete = sum(completeness_pct >= 70),
+    mean_completeness = mean(completeness_pct),
+    median_completeness = median(completeness_pct)
+  )
+print(completeness_summary_da)
+cat("\n")
+
+cat("Distribution of Completeness:\n")
+completeness_dist_da <- completeness_da %>%
+  mutate(completeness_group = case_when(
+    completeness_pct == 100 ~ "100% (Complete)",
+    completeness_pct >= 90 ~ "90-99%",
+    completeness_pct >= 80 ~ "80-89%",
+    completeness_pct >= 70 ~ "70-79%",
+    completeness_pct >= 50 ~ "50-69%",
+    TRUE ~ "<50%"
+  )) %>%
+  count(completeness_group) %>%
+  arrange(desc(completeness_group))
+print(completeness_dist_da)
+cat("\n")
+
+cat("Top 10 most complete records:\n")
+print(head(completeness_da %>% arrange(desc(completeness_pct)), 10))
+```
+
+## Quick Totals Summary
+
+```{r totals-summary}
+dr1iff <- read_xpt("DR1IFF_L (1).xpt")
+paq <- read_xpt("PAQ_L (2).xpt")
+dbq <- read_xpt("DBQ_L (1).xpt")
+
+cat("=== TOTALS SUMMARY ===\n\n")
+cat("DR1IFF Dataset:\n")
+cat("  Total records:", nrow(dr1iff), "\n")
+if("DR1IKCAL" %in% names(dr1iff)) {
+  cat("  Total calories (sum):", sum(dr1iff$DR1IKCAL, na.rm = TRUE), "kcal\n")
+  cat("  Total protein (sum):", sum(dr1iff$DR1IPROT, na.rm = TRUE), "g\n")
+  cat("  Total fat (sum):", sum(dr1iff$DR1ITFAT, na.rm = TRUE), "g\n")
+} else {
+  cat("  Nutritional variables not available\n")
+}
+cat("\n")
+
+cat("PAQ Dataset:\n")
+cat("  Total records:", nrow(paq), "\n")
+cat("  Total work activity minutes:", sum(paq$PAD800, na.rm = TRUE), "minutes\n")
+cat("  Total transport activity minutes:", sum(paq$PAD820, na.rm = TRUE), "minutes\n\n")
+
+cat("DBQ Dataset:\n")
+cat("  Total records:", nrow(dbq), "\n")
+cat("  Respondents with diet health rating:", sum(!is.na(dbq$DBQ010)), "\n")
+```
+

@@ -1,0 +1,290 @@
+---
+title: "Dietary Interview Day 1 - Exploratory Data Analysis"
+author: "STAT Capstone Project"
+date: "`r Sys.Date()`"
+output:
+  html_notebook:
+    toc: true
+    toc_float: true
+    code_folding: show
+    theme: flatly
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  fig.align = "center"
+)
+```
+
+```{r load-packages}
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+```
+
+# Data Loading
+
+```{r load-data}
+data <- read_xpt("DR1IFF_L (1).xpt")
+message("Data loaded: ", nrow(data), " rows, ", ncol(data), " columns")
+```
+
+# Data Overview
+
+```{r data-structure}
+str(data, give.attr = FALSE)
+summary(data)
+```
+
+# Key Variables Analysis
+
+## 1. Energy Intake (Calories)
+
+```{r calories-analysis}
+calories_summary <- data %>%
+  summarise(
+    mean_kcal = mean(DR1IKCAL, na.rm = TRUE),
+    median_kcal = median(DR1IKCAL, na.rm = TRUE),
+    sd_kcal = sd(DR1IKCAL, na.rm = TRUE),
+    min_kcal = min(DR1IKCAL, na.rm = TRUE),
+    max_kcal = max(DR1IKCAL, na.rm = TRUE),
+    q25 = quantile(DR1IKCAL, 0.25, na.rm = TRUE),
+    q75 = quantile(DR1IKCAL, 0.75, na.rm = TRUE)
+  )
+print(calories_summary)
+
+ggplot(data, aes(x = DR1IKCAL)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean(DR1IKCAL, na.rm = TRUE)), 
+             color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Distribution of Daily Caloric Intake",
+       x = "Calories (kcal)",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+## 2. Macronutrient Analysis
+
+```{r macronutrients}
+macros <- data %>%
+  select(SEQN, DR1IKCAL, DR1IPROT, DR1ICARB, DR1ITFAT, DR1ISUGR, DR1IFIBE) %>%
+  na.omit() %>%
+  mutate(
+    protein_pct = (DR1IPROT * 4 / DR1IKCAL) * 100,
+    carb_pct = (DR1ICARB * 4 / DR1IKCAL) * 100,
+    fat_pct = (DR1ITFAT * 9 / DR1IKCAL) * 100
+  )
+
+macros_summary <- macros %>%
+  summarise(
+    mean_protein_g = mean(DR1IPROT, na.rm = TRUE),
+    mean_carb_g = mean(DR1ICARB, na.rm = TRUE),
+    mean_fat_g = mean(DR1ITFAT, na.rm = TRUE),
+    mean_sugar_g = mean(DR1ISUGR, na.rm = TRUE),
+    mean_fiber_g = mean(DR1IFIBE, na.rm = TRUE),
+    mean_protein_pct = mean(protein_pct, na.rm = TRUE),
+    mean_carb_pct = mean(carb_pct, na.rm = TRUE),
+    mean_fat_pct = mean(fat_pct, na.rm = TRUE)
+  )
+print(macros_summary)
+
+macros_long <- macros %>%
+  select(protein_pct, carb_pct, fat_pct) %>%
+  pivot_longer(everything(), names_to = "macronutrient", values_to = "percentage") %>%
+  mutate(macronutrient = case_when(
+    macronutrient == "protein_pct" ~ "Protein",
+    macronutrient == "carb_pct" ~ "Carbohydrates",
+    macronutrient == "fat_pct" ~ "Fat"
+  ))
+
+ggplot(macros_long, aes(x = macronutrient, y = percentage)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  labs(title = "Distribution of Macronutrient Percentages",
+       x = "Macronutrient",
+       y = "Percentage of Total Calories (%)") +
+  theme_minimal()
+```
+
+## 3. Fat Composition Analysis
+
+```{r fat-analysis}
+fat_analysis <- data %>%
+  select(DR1ITFAT, DR1ISFAT, DR1IMFAT, DR1IPFAT) %>%
+  na.omit() %>%
+  summarise(
+    mean_total_fat = mean(DR1ITFAT, na.rm = TRUE),
+    mean_saturated = mean(DR1ISFAT, na.rm = TRUE),
+    mean_monounsaturated = mean(DR1IMFAT, na.rm = TRUE),
+    mean_polyunsaturated = mean(DR1IPFAT, na.rm = TRUE),
+    sat_pct = mean(DR1ISFAT / DR1ITFAT * 100, na.rm = TRUE),
+    mono_pct = mean(DR1IMFAT / DR1ITFAT * 100, na.rm = TRUE),
+    poly_pct = mean(DR1IPFAT / DR1ITFAT * 100, na.rm = TRUE)
+  )
+print(fat_analysis)
+```
+
+## 4. Cholesterol and Sodium
+
+```{r cholesterol-sodium}
+if("DR1ICHOL" %in% names(data)) {
+  chol_summary <- data %>%
+    summarise(
+      mean_chol = mean(DR1ICHOL, na.rm = TRUE),
+      median_chol = median(DR1ICHOL, na.rm = TRUE),
+      above_300mg = sum(DR1ICHOL > 300, na.rm = TRUE),
+      pct_above_300 = mean(DR1ICHOL > 300, na.rm = TRUE) * 100
+    )
+  print(chol_summary)
+}
+```
+
+## 5. Micronutrients Overview
+
+```{r micronutrients}
+micronutrient_vars <- c("DR1IRET", "DR1IVARA", "DR1IACAR", "DR1IBCAR", "DR1ICRYP", "DR1ILYCO", 
+                        "DR1IATOC", "DR1IATOA", "DR1IVB1", "DR1IVB2", "DR1INIAC", "DR1IVB6", 
+                        "DR1IFOLA", "DR1IVB12", "DR1IVC", "DR1IVD", "DR1IVK", "DR1ICALC", 
+                        "DR1IPHOS", "DR1IMAGN", "DR1IIRON", "DR1IZINC", "DR1ICOPP", "DR1ISODI", 
+                        "DR1IPOTA", "DR1ISELE")
+
+micronutrients <- data %>%
+  select(any_of(micronutrient_vars)) %>%
+  summarise_all(~ mean(., na.rm = TRUE))
+
+if(ncol(micronutrients) > 0) {
+  micronutrients_long <- micronutrients %>%
+    pivot_longer(everything(), names_to = "nutrient", values_to = "mean_value")
+  
+  print(head(micronutrients_long, 10))
+} else {
+  cat("No standard micronutrient variables found in dataset.\n")
+}
+```
+
+## 6. Missing Data Patterns
+
+```{r missing-data}
+missing_summary <- data %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "missing_count") %>%
+  filter(missing_count > 0) %>%
+  arrange(desc(missing_count)) %>%
+  mutate(missing_pct = (missing_count / nrow(data)) * 100)
+
+print(head(missing_summary, 20))
+```
+
+## 7. Relationship Between Calories and Macronutrients
+
+```{r calories-macros-relationship}
+if(nrow(macros) > 0) {
+  ggplot(macros, aes(x = DR1IKCAL, y = DR1IPROT)) +
+    geom_point(alpha = 0.3, color = "steelblue") +
+    geom_smooth(method = "lm", color = "red") +
+    labs(title = "Relationship: Calories vs Protein Intake",
+         x = "Calories (kcal)",
+         y = "Protein (g)") +
+    theme_minimal()
+  
+  cor_cal_prot <- cor(macros$DR1IKCAL, macros$DR1IPROT, use = "complete.obs")
+  cor_cal_carb <- cor(macros$DR1IKCAL, macros$DR1ICARB, use = "complete.obs")
+  cor_cal_fat <- cor(macros$DR1IKCAL, macros$DR1ITFAT, use = "complete.obs")
+  
+  cat("Correlation with Calories:\n")
+  cat("Protein:", round(cor_cal_prot, 3), "\n")
+  cat("Carbohydrates:", round(cor_cal_carb, 3), "\n")
+  cat("Fat:", round(cor_cal_fat, 3), "\n")
+}
+```
+
+## 8. Dietary Recall Status
+
+```{r recall-status}
+if("DR1DRSTZ" %in% names(data)) {
+  recall_status <- data %>%
+    count(DR1DRSTZ) %>%
+    mutate(pct = n / sum(n) * 100)
+  
+  print(recall_status)
+  
+  ggplot(recall_status, aes(x = factor(DR1DRSTZ), y = n)) +
+    geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7) +
+    labs(title = "Distribution of Dietary Recall Status",
+         x = "Recall Status Code",
+         y = "Count") +
+    theme_minimal()
+}
+```
+
+## 9. Day of Week Analysis
+
+```{r day-of-week}
+if("DR1DAY" %in% names(data)) {
+  day_analysis <- data %>%
+    group_by(DR1DAY) %>%
+    summarise(
+      mean_calories = mean(DR1IKCAL, na.rm = TRUE),
+      n = n()
+    ) %>%
+    mutate(day_name = case_when(
+      DR1DAY == 1 ~ "Sunday",
+      DR1DAY == 2 ~ "Monday",
+      DR1DAY == 3 ~ "Tuesday",
+      DR1DAY == 4 ~ "Wednesday",
+      DR1DAY == 5 ~ "Thursday",
+      DR1DAY == 6 ~ "Friday",
+      DR1DAY == 7 ~ "Saturday"
+    ))
+  
+  print(day_analysis)
+  
+  ggplot(day_analysis, aes(x = reorder(day_name, DR1DAY), y = mean_calories)) +
+    geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7) +
+    labs(title = "Average Caloric Intake by Day of Week",
+         x = "Day of Week",
+         y = "Mean Calories (kcal)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+```
+
+## 10. Extreme Values and Outliers
+
+```{r outliers}
+cal_q1 <- quantile(data$DR1IKCAL, 0.25, na.rm = TRUE)
+cal_q3 <- quantile(data$DR1IKCAL, 0.75, na.rm = TRUE)
+cal_iqr <- IQR(data$DR1IKCAL, na.rm = TRUE)
+upper_bound <- cal_q3 + 1.5 * cal_iqr
+lower_bound <- cal_q1 - 1.5 * cal_iqr
+
+outlier_analysis <- data %>%
+  summarise(
+    calories_q1 = cal_q1,
+    calories_q3 = cal_q3,
+    calories_iqr = cal_iqr,
+    upper_bound = upper_bound,
+    lower_bound = lower_bound,
+    calories_outliers = sum(DR1IKCAL > upper_bound | DR1IKCAL < lower_bound, na.rm = TRUE),
+    pct_outliers = mean(DR1IKCAL > upper_bound | DR1IKCAL < lower_bound, na.rm = TRUE) * 100
+  )
+print(outlier_analysis)
+```
+
+# Key Insights Summary
+
+```{r summary-insights}
+cat("=== KEY INSIGHTS ===\n\n")
+cat("1. Total Records:", nrow(data), "\n")
+cat("2. Mean Daily Calories:", round(mean(data$DR1IKCAL, na.rm = TRUE), 2), "kcal\n")
+cat("3. Mean Protein:", round(mean(data$DR1IPROT, na.rm = TRUE), 2), "g\n")
+cat("4. Mean Carbohydrates:", round(mean(data$DR1ICARB, na.rm = TRUE), 2), "g\n")
+cat("5. Mean Total Fat:", round(mean(data$DR1ITFAT, na.rm = TRUE), 2), "g\n")
+```
+
