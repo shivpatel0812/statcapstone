@@ -20,8 +20,26 @@
 # Data files
 *.xpt
 
+# MCP config (contains API tokens)
+.mcp.json
+
 # Temporary files
 *.tmp
 *.bak
 *.swp
 *~
+.Rproj.user
+
+# Macro Goal app — do not commit deps or build output
+macro_goal_app/frontend/node_modules/
+macro_goal_app/frontend/dist/
+macro_goal_app/backend/.venv/
+macro_goal_app/backend/venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.python-version
+
+# Cursor / local agent
+.claude/
