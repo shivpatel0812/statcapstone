@@ -1,6 +1,8 @@
 import { useState } from "react";
 
-const API_URL = "http://localhost:8000/recommend";
+// Vercel: set VITE_API_URL to your Railway URL, e.g. https://your-app.up.railway.app (no trailing slash)
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const API_URL = `${API_BASE}/recommend`;
 
 function Icon({ children, className = "section-icon", title, size = 20 }) {
   const decorative = title == null || title === "";

@@ -31,8 +31,9 @@ time_range <- tolower(args[13])
 # ==============================================================================
 # Load NHANES model results
 # ==============================================================================
-base_dir <- normalizePath(file.path(getwd(), "..", ".."), mustWork = TRUE)
-rcode_dir <- file.path(base_dir, "Rcode")
+# cwd is macro_goal_app/backend (see app.py subprocess cwd)
+backend_dir <- normalizePath(getwd(), mustWork = TRUE)
+rcode_dir <- file.path(backend_dir, "Rcode")
 
 source(file.path(rcode_dir, "00_project_setup.R"))
 source(file.path(rcode_dir, "01_data_prep.R"))
