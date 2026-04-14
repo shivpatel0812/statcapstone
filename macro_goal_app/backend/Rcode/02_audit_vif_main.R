@@ -36,7 +36,11 @@ run_audit_vif_main <- function(data, design, make_plots = TRUE) {
   )
 
   cat("\n=== VIF WITH total_calories ===\n")
-  print(vif(lm_vif_full))
+  if (isTRUE(HAS_CAR)) {
+    print(car::vif(lm_vif_full))
+  } else {
+    cat("Skipped: package 'car' not installed.\n")
+  }
 
   lm_for_vif <- lm(
     BMXBMI ~ total_sugar + total_fiber + total_protein + total_carbs + total_fat + total_cholesterol +
@@ -45,7 +49,11 @@ run_audit_vif_main <- function(data, design, make_plots = TRUE) {
   )
 
   cat("\n=== VIF WITHOUT total_calories (final) ===\n")
-  print(vif(lm_for_vif))
+  if (isTRUE(HAS_CAR)) {
+    print(car::vif(lm_for_vif))
+  } else {
+    cat("Skipped: package 'car' not installed.\n")
+  }
 
   if (isTRUE(make_plots)) {
     par(mfrow = c(2, 2))

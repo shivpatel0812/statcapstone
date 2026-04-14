@@ -2,8 +2,14 @@ options(survey.lonely.psu = "adjust")
 
 suppressPackageStartupMessages({
   library(survey)
-  library(car)
 })
+
+# 'car' is only needed for VIF diagnostics. Keep recommendations working
+# even if the package is unavailable in lightweight deploy environments.
+HAS_CAR <- requireNamespace("car", quietly = TRUE)
+if (!HAS_CAR) {
+  cat("Note: 'car' package not available; skipping VIF diagnostics.\n")
+}
 
 # Backend root = folder that contains both Rcode/ and python_code/combined_data.csv
 # (macro_goal_app/backend). Works when getwd() is backend, backend/Rcode, repo root, etc.
