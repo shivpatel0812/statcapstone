@@ -12,6 +12,7 @@
 *.pdf
 *.docx
 *.pptx
+!macro_goal_app/frontend/index.html
 
 # Knitr
 *.utf8.md
