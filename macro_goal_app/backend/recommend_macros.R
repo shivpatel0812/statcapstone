@@ -9,8 +9,8 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 13) {
-  stop("Usage: Rscript recommend_macros.R protein carbs fat sugar fiber sex weight_kg height_cm sleep_hours activity_min sedentary_min goal time_range")
+if (length(args) < 14) {
+  stop("Usage: Rscript recommend_macros.R protein carbs fat sugar fiber sex weight_kg height_cm sleep_hours activity_min sedentary_min goal time_range total_calories")
 }
 
 # Parse inputs
@@ -28,6 +28,13 @@ sedentary_min <- as.numeric(args[11])
 goal <- tolower(args[12])
 time_range <- tolower(args[13])
 
+# Required: user-tracked total daily calories. This is the baseline the plan
+# is built on; implied kcal from macros is kept only for display / comparison.
+user_logged_calories <- suppressWarnings(as.numeric(args[14]))
+if (length(user_logged_calories) == 0 || is.na(user_logged_calories) || user_logged_calories < 0) {
+  stop("total_calories must be a non-negative number")
+}
+
 # ==============================================================================
 # Load NHANES model results
 # ==============================================================================
@@ -40,15 +47,19 @@ source(file.path(rcode_dir, "01_data_prep.R"))
 source(file.path(rcode_dir, "02_audit_vif_main.R"))
 source(file.path(rcode_dir, "03_interaction_models.R"))
 source(file.path(rcode_dir, "04_body_composition_models.R"))
+source(file.path(rcode_dir, "06_calorie_models.R"))
 
 data <- prepare_data()
 design <- make_design(data)
 
-# Run models silently
+# Run models silently. 06_calorie_models fits total_calories (no macros) on the
+# four outcomes so we can use its coefficients alongside the macro models
+# without reintroducing the VIF issue (calories = 4P + 4C + 9F).
 invisible(capture.output({
   main_res <- run_audit_vif_main(data, design, make_plots = FALSE)
   int_res <- run_interaction_models(data, design)
   body_res <- run_body_composition_models(data)
+  cal_res <- run_calorie_models(data, design)
 }))
 
 # ==============================================================================
@@ -56,7 +67,12 @@ invisible(capture.output({
 # ==============================================================================
 height_m <- height_cm / 100
 bmi <- ifelse(height_m > 0, weight_kg / (height_m ^ 2), NA)
-current_calories <- 4 * protein + 4 * carbs + 9 * fat
+
+# Energy: user-tracked total calories is the baseline. Implied kcal from
+# macros is still computed so the UI can show the gap between tracked and
+# macro-implied intake.
+implied_calories <- 4 * protein + 4 * carbs + 9 * fat
+current_calories <- user_logged_calories
 
 # Activity level
 activity_level <- if (activity_min >= 150) "active" else if (activity_min >= 75) "moderate" else "sedentary"
@@ -232,6 +248,39 @@ if (!is.na(bmi) && bmi >= 30 && goal %in% c("lose_weight", "reduce_bmi")) {
 target_calories <- current_calories * calorie_multiplier
 target_calories <- max(1200, target_calories)  # Safety floor
 
+# --- Calorie model evidence (from 06_calorie_models.R) ---
+# Tie the target calorie change to the no-macro calorie model's coefficient
+# for the outcome most aligned with the goal. This is separate from the macro
+# models above to avoid multicollinearity.
+cal_outcome <- switch(goal,
+  "reduce_bmi" = "bmi",
+  "lose_weight" = "bmi",
+  "reduce_waist" = "waist",
+  "improve_cholesterol" = "cholesterol",
+  "improve_glucose" = "glucose",
+  "build_muscle" = "bmi",
+  "gain_weight" = "bmi",
+  "general_health" = "bmi"
+)
+
+cal_coef_per_100 <- tryCatch(cal_res$coef_per_100kcal[[cal_outcome]], error = function(e) NA_real_)
+cal_pval <- tryCatch(cal_res$pvals[[cal_outcome]], error = function(e) NA_real_)
+calorie_delta <- target_calories - current_calories
+
+if (!is.null(cal_coef_per_100) && !is.na(cal_coef_per_100)) {
+  expected_cal_effect <- cal_coef_per_100 * (calorie_delta / 100)
+  outcome_label <- switch(cal_outcome,
+    "bmi" = "BMI (kg/m^2)",
+    "waist" = "waist (cm)",
+    "cholesterol" = "cholesterol (mmol/L)",
+    "glucose" = "glucose (mmol/L)"
+  )
+  evidence <- c(evidence, sprintf(
+    "Calorie model: %+.0f kcal/day is associated with %+.3f %s (beta=%+.4f per 100 kcal, p=%.3f)",
+    calorie_delta, expected_cal_effect, outcome_label, cal_coef_per_100, cal_pval
+  ))
+}
+
 # --- FAT: Minimum for health ---
 fat_floor <- 0.7 * weight_kg
 fat_target <- max(fat, fat_floor)
@@ -278,6 +327,8 @@ cat(sprintf("sugar=%s\n", round(recommendations$sugar, 1)))
 cat(sprintf("fiber=%s\n", round(recommendations$fiber, 1)))
 cat(sprintf("bmi=%s\n", round(bmi, 1)))
 cat(sprintf("current_calories=%s\n", round(current_calories, 0)))
+cat(sprintf("implied_calories=%s\n", round(implied_calories, 0)))
+cat(sprintf("logged_calories=%s\n", round(user_logged_calories, 0)))
 cat(sprintf("target_calories=%s\n", round(target_calories, 0)))
 cat(sprintf("calorie_change=%s\n", round(target_calories - current_calories, 0)))
 cat(sprintf("activity_level=%s\n", activity_level))

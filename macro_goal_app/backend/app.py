@@ -12,6 +12,7 @@ class MacroInput(BaseModel):
     fat: float = Field(..., ge=0, description="Current fat intake (g/day)")
     sugar: float = Field(..., ge=0, description="Current sugar intake (g/day)")
     fiber: float = Field(..., ge=0, description="Current fiber intake (g/day)")
+    total_calories: float = Field(..., ge=0, description="User-tracked total daily calories (kcal)")
     sex: str
     weight_kg: float = Field(..., gt=0)
     height_cm: float = Field(..., gt=0)
@@ -87,6 +88,7 @@ def recommend(payload: MacroInput) -> dict:
         str(payload.sedentary_min),
         goal,
         time_range,
+        str(payload.total_calories),
     ]
 
     result = subprocess.run(
@@ -142,5 +144,16 @@ def recommend(payload: MacroInput) -> dict:
         response["health_benefits"] = data["health_benefits"]
     if "activity_level" in data:
         response["profile"]["activity_level"] = data["activity_level"]
+    if "implied_calories" in data:
+        response["profile"]["implied_calories"] = float(data["implied_calories"])
+    if "logged_calories" in data:
+        try:
+            response["profile"]["logged_calories"] = float(data["logged_calories"])
+        except ValueError:
+            pass
+    if "goal_name" in data:
+        response["goal_name"] = data["goal_name"]
+    if "time_range" in data:
+        response["time_range"] = data["time_range"]
 
     return response

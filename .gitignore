@@ -34,6 +34,7 @@
 # Macro Goal app — do not commit deps or build output
 macro_goal_app/frontend/node_modules/
 macro_goal_app/frontend/dist/
+macro_goal_app/frontend/.env
 macro_goal_app/backend/.venv/
 macro_goal_app/backend/venv/
 

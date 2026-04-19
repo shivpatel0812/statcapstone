@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import AuthBar from "./AuthBar";
+import DailyLogSection from "./DailyLogSection";
+import { GOALS } from "./healthGoals";
+import { kgToLbs, lbsToKg } from "./weightUnits";
 
 // Vercel: set VITE_API_URL to your Railway URL, e.g. https://your-app.up.railway.app (no trailing slash)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -41,8 +45,9 @@ const INITIAL = {
   fat: 70,
   sugar: 65,
   fiber: 18,
+  total_calories: 2000,
   sex: "male",
-  weight_kg: 75,
+  weight_lbs: Math.round(kgToLbs(75) * 10) / 10,
   height_cm: 178,
   sleep_hours: 7,
   activity_min: 150,
@@ -51,42 +56,82 @@ const INITIAL = {
   time_range: "general",
 };
 
-const GOALS = [
-  { value: "general_health", label: "General Health", category: "Health" },
-  { value: "lose_weight", label: "Lose Weight", category: "Body Composition" },
-  { value: "gain_weight", label: "Gain Weight", category: "Body Composition" },
-  { value: "build_muscle", label: "Build Muscle", category: "Body Composition" },
-  { value: "reduce_bmi", label: "Reduce BMI", category: "Health Outcomes" },
-  { value: "reduce_waist", label: "Reduce Waist Circumference", category: "Health Outcomes" },
-  { value: "improve_cholesterol", label: "Improve Cholesterol", category: "Health Outcomes" },
-  { value: "improve_glucose", label: "Improve Glucose Levels", category: "Health Outcomes" },
-];
+const TEXT_FIELDS = new Set(["goal", "sex", "time_range"]);
 
 export default function App() {
   const [form, setForm] = useState(INITIAL);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [activeScreen, setActiveScreen] = useState("plan");
+  const [planSource, setPlanSource] = useState("planner");
+  const [planSourceMeta, setPlanSourceMeta] = useState(null);
+  const [submittedInputs, setSubmittedInputs] = useState(null);
+  const resultRef = useRef(null);
 
   function onChange(e) {
     const { name, value } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]: ["goal", "sex", "time_range"].includes(name) ? value : Number(value),
-    }));
+    setForm((prev) => {
+      if (TEXT_FIELDS.has(name)) {
+        return { ...prev, [name]: value };
+      }
+      // Let weight clear to "" so Number("") is never stored as 0 (avoids "01" while typing).
+      if (name === "weight_lbs") {
+        if (value === "") return { ...prev, weight_lbs: "" };
+        const n = Number(value);
+        return { ...prev, weight_lbs: Number.isFinite(n) ? n : prev.weight_lbs };
+      }
+      return { ...prev, [name]: Number(value) };
+    });
   }
 
-  async function onSubmit(e) {
-    e.preventDefault();
+  async function runPrediction(input, sourceOrMeta = "planner") {
+    const meta =
+      typeof sourceOrMeta === "string" ? { source: sourceOrMeta } : sourceOrMeta || {};
+    const source = meta.source || "planner";
     setLoading(true);
     setError("");
     setResult(null);
+    setPlanSource(source);
+    setPlanSourceMeta(meta);
 
     try {
+      const { weight_lbs, weight_kg, notes: _n, ...rest } = input;
+      const lbsNum =
+        weight_lbs !== "" && weight_lbs != null && Number.isFinite(Number(weight_lbs))
+          ? Number(weight_lbs)
+          : null;
+      const kgFallback =
+        weight_kg != null && Number.isFinite(Number(weight_kg)) ? Number(weight_kg) : null;
+      const resolvedKg = lbsNum != null ? lbsToKg(lbsNum) : kgFallback;
+
+      if (resolvedKg == null || !Number.isFinite(resolvedKg) || resolvedKg <= 0) {
+        setError("Please enter your weight in pounds before generating a plan.");
+        return null;
+      }
+
+      // Snapshot the user-visible inputs so the result card can echo them back.
+      setSubmittedInputs({
+        weight_lbs: lbsNum ?? (resolvedKg != null ? kgToLbs(resolvedKg) : null),
+        protein: Number(rest.protein),
+        carbs: Number(rest.carbs),
+        fat: Number(rest.fat),
+        sugar: Number(rest.sugar),
+        fiber: Number(rest.fiber),
+        total_calories: Number(rest.total_calories),
+        sleep_hours: Number(rest.sleep_hours),
+        activity_min: Number(rest.activity_min),
+        sedentary_min: Number(rest.sedentary_min),
+        height_cm: Number(rest.height_cm),
+        sex: rest.sex,
+      });
+
+      const payload = { ...rest, weight_kg: resolvedKg };
+
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -95,19 +140,36 @@ export default function App() {
       }
 
       setResult(data);
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+      return data;
     } catch (err) {
       setError(String(err.message || err));
+      return null;
     } finally {
       setLoading(false);
     }
   }
 
+  async function onSubmitPlanner(e) {
+    e.preventDefault();
+    if (form.weight_lbs === "" || !Number.isFinite(Number(form.weight_lbs))) {
+      setError("Please enter your weight in pounds before generating a plan.");
+      return;
+    }
+    await runPrediction(form, "planner");
+  }
+
+  // Use the inputs that were actually sent to the API; falls back to the live
+  // form if a plan hasn't been generated yet.
+  const inputsForResult = submittedInputs ?? form;
   const currentMacros = {
-    protein: form.protein,
-    carbs: form.carbs,
-    fat: form.fat,
-    sugar: form.sugar,
-    fiber: form.fiber,
+    protein: inputsForResult.protein,
+    carbs: inputsForResult.carbs,
+    fat: inputsForResult.fat,
+    sugar: inputsForResult.sugar,
+    fiber: inputsForResult.fiber,
   };
 
   // Group goals by category
@@ -120,15 +182,63 @@ export default function App() {
   return (
     <main className="container">
       <header className="header">
-        <h1>NHANES Evidence-Based Macro Planner</h1>
-        <p className="trust-line">Based on NHANES data</p>
+        <div className="header-top">
+          <div className="header-titles">
+            <h1>NHANES Evidence-Based Macro Planner</h1>
+            <p className="trust-line">Based on NHANES data</p>
+          </div>
+          <AuthBar />
+        </div>
         <p className="subtitle">
           Personalized nutrition recommendations based on NHANES 2021-2023 statistical models (n=6,751).
           Choose your health goal and receive evidence-based macro targets.
         </p>
       </header>
 
-      <form onSubmit={onSubmit} className="form-stack">
+      <div className="app-view-switch" role="tablist" aria-label="Main app views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeScreen === "plan"}
+          className={`app-view-btn ${activeScreen === "plan" ? "active" : ""}`}
+          onClick={() => setActiveScreen("plan")}
+        >
+          Plan & Analysis
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeScreen === "log"}
+          className={`app-view-btn ${activeScreen === "log" ? "active" : ""}`}
+          onClick={() => setActiveScreen("log")}
+        >
+          Daily Log
+        </button>
+      </div>
+
+      {activeScreen === "log" ? (
+        <DailyLogSection
+          onApplyToPlanner={(patch) => {
+            setForm((prev) => {
+              const next = { ...prev, ...patch };
+              if (patch.weight_kg != null && patch.weight_lbs === undefined) {
+                next.weight_lbs = kgToLbs(patch.weight_kg);
+                delete next.weight_kg;
+              }
+              return next;
+            });
+            setActiveScreen("plan");
+          }}
+          onPredictFromLog={async (logValues, meta) => {
+            const data = await runPrediction(logValues, { source: "logs", ...(meta || {}) });
+            if (data) setActiveScreen("plan");
+            return data;
+          }}
+          predictFromLogLoading={loading && planSource === "logs"}
+        />
+      ) : (
+        <>
+      <form onSubmit={onSubmitPlanner} className="form-stack">
         <section className="section-card form-section">
           <SectionHeader
             title="Your Profile"
@@ -149,8 +259,15 @@ export default function App() {
               </select>
             </label>
             <label>
-              Weight (kg)
-              <input type="number" name="weight_kg" value={form.weight_kg} onChange={onChange} min="1" />
+              Weight (lb)
+              <input
+                type="number"
+                name="weight_lbs"
+                value={form.weight_lbs === "" ? "" : form.weight_lbs}
+                onChange={onChange}
+                min="22"
+                step="0.1"
+              />
             </label>
             <label>
               Height (cm)
@@ -190,6 +307,17 @@ export default function App() {
               Fiber (g)
               <input type="number" name="fiber" value={form.fiber} onChange={onChange} min="0" />
             </label>
+            <label>
+              Total Calories (kcal)
+              <input
+                type="number"
+                name="total_calories"
+                value={form.total_calories}
+                onChange={onChange}
+                min="0"
+                required
+              />
+            </label>
           </div>
         </section>
 
@@ -228,7 +356,6 @@ export default function App() {
                 min="0"
                 placeholder="WHO: 150 min/week"
               />
-              <small>Moderate + 2×vigorous (WHO-weighted)</small>
             </label>
             <label className="label-with-icon">
               <span className="label-row">
@@ -340,9 +467,18 @@ export default function App() {
 
       {result?.recommended && (
         <>
-          <section className="card result-header">
+          <section className="card result-header" ref={resultRef}>
             <h2>Your Plan: {result.goal_name}</h2>
-            <p className="plan-subtitle">{result.time_range}</p>
+            <p className="plan-subtitle">
+              {result.time_range}
+              {planSource === "logs" ? (
+                <span className="plan-source-tag">
+                  {" "}
+                  • from {planSourceMeta?.n ?? "all"} saved day
+                  {planSourceMeta?.n === 1 ? "" : "s"} (median)
+                </span>
+              ) : null}
+            </p>
             <div className="profile-grid">
               <div className="profile-item">
                 <span className="profile-label">BMI</span>
@@ -353,7 +489,10 @@ export default function App() {
                 <span className="profile-value">{result.profile.activity_level}</span>
               </div>
               <div className="profile-item">
-                <span className="profile-label">Current Calories</span>
+                <span className="profile-label">
+                  Current Calories
+                  <small className="profile-hint"> (tracked)</small>
+                </span>
                 <span className="profile-value">{result.profile.current_calories} kcal</span>
               </div>
               <div className="profile-item">
@@ -369,6 +508,54 @@ export default function App() {
                 </span>
               </div>
             </div>
+            {result.profile.implied_calories !== undefined &&
+              Math.abs(result.profile.current_calories - result.profile.implied_calories) >= 50 && (
+                <p className="calorie-gap-note">
+                  Tracked calories: {result.profile.current_calories} kcal •
+                  Implied from macros (4P + 4C + 9F): {result.profile.implied_calories} kcal.
+                  Plan uses tracked calories as the baseline.
+                </p>
+              )}
+
+            {submittedInputs && (
+              <div className="inputs-echo">
+                <h4 className="inputs-echo-title">Your inputs used for this plan</h4>
+                <div className="inputs-echo-grid">
+                  <div className="inputs-echo-item">
+                    <span>Weight</span>
+                    <strong>
+                      {submittedInputs.weight_lbs != null
+                        ? `${submittedInputs.weight_lbs.toFixed(1)} lb`
+                        : "—"}
+                    </strong>
+                  </div>
+                  <div className="inputs-echo-item">
+                    <span>Height</span>
+                    <strong>{submittedInputs.height_cm} cm</strong>
+                  </div>
+                  <div className="inputs-echo-item">
+                    <span>Sleep</span>
+                    <strong>{submittedInputs.sleep_hours} hrs/night</strong>
+                  </div>
+                  <div className="inputs-echo-item">
+                    <span>Activity</span>
+                    <strong>{submittedInputs.activity_min} min/week</strong>
+                  </div>
+                  <div className="inputs-echo-item">
+                    <span>Sedentary</span>
+                    <strong>{submittedInputs.sedentary_min} min/day</strong>
+                  </div>
+                  <div className="inputs-echo-item">
+                    <span>Calories (tracked)</span>
+                    <strong>{submittedInputs.total_calories} kcal</strong>
+                  </div>
+                  <div className="inputs-echo-item">
+                    <span>Sex</span>
+                    <strong style={{ textTransform: "capitalize" }}>{submittedInputs.sex}</strong>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="card">
@@ -380,6 +567,25 @@ export default function App() {
                 <span>Target</span>
                 <span>Change</span>
               </div>
+              {/* Calories row first */}
+              {result.profile.current_calories != null && result.profile.target_calories != null && (() => {
+                const current = result.profile.current_calories;
+                const target = result.profile.target_calories;
+                const change = target - current;
+                const changePercent = current > 0 ? ((change / current) * 100).toFixed(0) : 0;
+                const isSignificant = Math.abs(change) > 20;
+                return (
+                  <div className={`macro-row macro-row--calories ${isSignificant ? "significant" : ""}`}>
+                    <span className="macro-name">Calories</span>
+                    <span className="current-value">{current} kcal</span>
+                    <span className="recommended-value">{target} kcal</span>
+                    <span className={`change-value ${change > 0 ? "positive" : change < 0 ? "negative" : "neutral"}`}>
+                      {change > 0 ? "+" : ""}{change.toFixed(0)} kcal
+                      {isSignificant && <span className="percent"> ({changePercent > 0 ? "+" : ""}{changePercent}%)</span>}
+                    </span>
+                  </div>
+                );
+              })()}
               {Object.keys(currentMacros).map((key) => {
                 const current = currentMacros[key];
                 const recommended = result.recommended[key];
@@ -422,6 +628,8 @@ export default function App() {
               <strong>Key Finding:</strong> Macro composition (fiber, protein×activity) matters more than total calorie intake alone.
             </div>
           </section>
+        </>
+      )}
         </>
       )}
     </main>
