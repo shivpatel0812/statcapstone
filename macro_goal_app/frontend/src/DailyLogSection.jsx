@@ -113,7 +113,6 @@ export default function DailyLogSection({ onApplyToPlanner, onPredictFromLog, pr
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [recentIds, setRecentIds] = useState([]);
-  const [view, setView] = useState("log");
   const [seedingDemo, setSeedingDemo] = useState(false);
 
   const db = getFirestoreDb();
@@ -329,152 +328,133 @@ export default function DailyLogSection({ onApplyToPlanner, onPredictFromLog, pr
   }
 
   return (
-    <section className="section-card daily-log-section" aria-labelledby="daily-log-heading">
-      <div className="daily-log-header">
-        <div>
-          <h2 id="daily-log-heading" className="daily-log-title">
-            Daily log
-          </h2>
-          <p className="daily-log-sub">
-            One entry per calendar day, tied to your Google account. Create or edit a day, then save.
-          </p>
-        </div>
-        <div className="daily-log-header-right">
-          <div className="daily-log-view-toggle" role="tablist" aria-label="Daily log view">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "log"}
-              className={`daily-log-view-btn ${view === "log" ? "active" : ""}`}
-              onClick={() => setView("log")}
-            >
-              Log
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "trends"}
-              className={`daily-log-view-btn ${view === "trends" ? "active" : ""}`}
-              onClick={() => setView("trends")}
-            >
-              Trends
-            </button>
-          </div>
-          {view === "log" ? (
-            <label className="daily-log-date">
-              <span>Day</span>
-              <input type="date" value={logDate} onChange={(e) => setLogDate(e.target.value)} max="2099-12-31" />
-            </label>
-          ) : null}
-        </div>
+    <div className="layout-grid layout-grid--flipped">
+      <div className="layout-main">
+        <TrendsSection />
       </div>
 
-      {view === "trends" ? <TrendsSection /> : null}
+      <div className="layout-sidebar">
+        <section className="section-card daily-log-section" aria-labelledby="daily-log-heading">
+          <div className="daily-log-header" style={{ marginBottom: "1rem" }}>
+            <div>
+              <h2 id="daily-log-heading" className="daily-log-title" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color: "var(--primary)"}}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Log Today's Entry
+              </h2>
+            </div>
+          </div>
 
-      {view === "log" && loadingDoc ? <p className="daily-log-muted">Loading entry…</p> : null}
+          {loadingDoc ? <p className="daily-log-muted">Loading entry…</p> : null}
 
-      {view === "log" ? (
-      <form onSubmit={onSave} className="form-stack daily-log-form">
-        <div className="grid">
-          <label>
-            Sex
-            <select name="sex" value={logForm.sex} onChange={onChange}>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label>
-            Weight (lb)
-            <input
-              type="number"
-              name="weight_lbs"
-              value={logForm.weight_lbs === "" ? "" : logForm.weight_lbs}
-              onChange={onChange}
-              min="22"
-              step="0.1"
-            />
-            <small>Saved as kg for the planner API.</small>
-          </label>
-          <label>
-            Height (cm)
-            <input type="number" name="height_cm" value={logForm.height_cm} onChange={onChange} min="50" />
-          </label>
-        </div>
-
-        <div className="grid">
-          <label>
-            Protein (g)
-            <input type="number" name="protein" value={logForm.protein} onChange={onChange} min="0" />
-          </label>
-          <label>
-            Carbs (g)
-            <input type="number" name="carbs" value={logForm.carbs} onChange={onChange} min="0" />
-          </label>
-          <label>
-            Fat (g)
-            <input type="number" name="fat" value={logForm.fat} onChange={onChange} min="0" />
-          </label>
-          <label>
-            Sugar (g)
-            <input type="number" name="sugar" value={logForm.sugar} onChange={onChange} min="0" />
-          </label>
-          <label>
-            Fiber (g)
-            <input type="number" name="fiber" value={logForm.fiber} onChange={onChange} min="0" />
-          </label>
-          <label>
-            Total calories (kcal)
-            <input type="number" name="total_calories" value={logForm.total_calories} onChange={onChange} min="0" />
-          </label>
-        </div>
-
-        <div className="grid">
-          <label>
-            Sleep (hours/night)
-            <input type="number" step="0.1" name="sleep_hours" value={logForm.sleep_hours} onChange={onChange} min="0" max="24" />
-          </label>
-          <label>
-            Weekly activity (min)
-            <input type="number" name="activity_min" value={logForm.activity_min} onChange={onChange} min="0" />
-          </label>
-          <label>
-            Daily sedentary time (min)
-            <input type="number" name="sedentary_min" value={logForm.sedentary_min} onChange={onChange} min="0" />
-          </label>
-        </div>
-
-        <label htmlFor="daily-log-goal">Goal (for context)</label>
-        <select id="daily-log-goal" name="goal" value={logForm.goal} onChange={onChange} className="goal-select">
-          {Object.entries(goalsByCategory).map(([category, goals]) => (
-            <optgroup key={category} label={category}>
-              {goals.map((g) => (
-                <option key={g.value} value={g.value}>
-                  {g.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-
-        <div className="time-range-grid">
-          <span className="daily-log-inline-label">Time range</span>
-          {["general", "3_months", "6_months", "12_months"].map((v) => (
-            <label key={v}>
-              <input type="radio" name="time_range" value={v} checked={logForm.time_range === v} onChange={onChange} />
-              <span>
-                {v === "general" ? "General" : v === "3_months" ? "3 months" : v === "6_months" ? "6 months" : "12 months"}
-              </span>
+          <form onSubmit={onSave} className="form-stack daily-log-form">
+            <label>
+              Date
+              <input type="date" value={logDate} onChange={(e) => setLogDate(e.target.value)} max="2099-12-31" />
             </label>
-          ))}
-        </div>
 
-        <label>
-          Notes (optional)
-          <textarea name="notes" value={logForm.notes} onChange={onChange} rows={3} className="daily-log-notes" maxLength={2000} />
-        </label>
+            <div className="grid-2-col">
+              <label>
+                Sex
+                <select name="sex" value={logForm.sex} onChange={onChange}>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>
+                Weight (lb)
+                <input
+                  type="number"
+                  name="weight_lbs"
+                  value={logForm.weight_lbs === "" ? "" : logForm.weight_lbs}
+                  onChange={onChange}
+                  min="22"
+                  step="0.1"
+                />
+              </label>
+            </div>
 
-        <div className="daily-log-actions">
+            <label>
+              Height (cm)
+              <input type="number" name="height_cm" value={logForm.height_cm} onChange={onChange} min="50" />
+            </label>
+
+            <div className="grid-3-col">
+              <label>
+                Protein (g)
+                <input type="number" name="protein" value={logForm.protein} onChange={onChange} min="0" />
+              </label>
+              <label>
+                Carbs (g)
+                <input type="number" name="carbs" value={logForm.carbs} onChange={onChange} min="0" />
+              </label>
+              <label>
+                Fat (g)
+                <input type="number" name="fat" value={logForm.fat} onChange={onChange} min="0" />
+              </label>
+            </div>
+
+            <div className="grid-3-col">
+              <label>
+                Sugar (g)
+                <input type="number" name="sugar" value={logForm.sugar} onChange={onChange} min="0" />
+              </label>
+              <label>
+                Fiber (g)
+                <input type="number" name="fiber" value={logForm.fiber} onChange={onChange} min="0" />
+              </label>
+              <label>
+                Calories
+                <input type="number" name="total_calories" value={logForm.total_calories} onChange={onChange} min="0" />
+              </label>
+            </div>
+
+            <div className="grid-3-col">
+              <label>
+                Sleep (h)
+                <input type="number" step="0.1" name="sleep_hours" value={logForm.sleep_hours} onChange={onChange} min="0" max="24" />
+              </label>
+              <label>
+                Activity (min)
+                <input type="number" name="activity_min" value={logForm.activity_min} onChange={onChange} min="0" />
+              </label>
+              <label>
+                Sedentary (min)
+                <input type="number" name="sedentary_min" value={logForm.sedentary_min} onChange={onChange} min="0" />
+              </label>
+            </div>
+
+            <label htmlFor="daily-log-goal">Goal</label>
+            <select id="daily-log-goal" name="goal" value={logForm.goal} onChange={onChange} className="goal-select">
+              {Object.entries(goalsByCategory).map(([category, goals]) => (
+                <optgroup key={category} label={category}>
+                  {goals.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+
+            <div className="time-range-grid">
+              <span className="daily-log-inline-label">Time range</span>
+              {["general", "3_months", "6_months", "12_months"].map((v) => (
+                <label key={v}>
+                  <input type="radio" name="time_range" value={v} checked={logForm.time_range === v} onChange={onChange} />
+                  <span>
+                    {v === "general" ? "General" : v === "3_months" ? "3 months" : v === "6_months" ? "6 months" : "12 months"}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <label>
+              Notes (optional)
+              <textarea name="notes" value={logForm.notes} onChange={onChange} rows={3} className="daily-log-notes" maxLength={2000} />
+            </label>
+
+            <div className="daily-log-actions">
           <button type="submit" className="submit-btn" disabled={saving || loadingDoc}>
             {saving ? "Saving…" : "Save this day"}
           </button>
@@ -494,7 +474,7 @@ export default function DailyLogSection({ onApplyToPlanner, onPredictFromLog, pr
             </button>
           ) : null}
         </div>
-        {isLogSeedEnabled() && user && db && view === "log" ? (
+        {isLogSeedEnabled() && user && db ? (
           <p className="daily-log-seed-wrap">
             <button
               type="button"
@@ -511,12 +491,11 @@ export default function DailyLogSection({ onApplyToPlanner, onPredictFromLog, pr
           </p>
         ) : null}
       </form>
-      ) : null}
 
-      {view === "log" && message ? <p className="daily-log-success">{message}</p> : null}
-      {view === "log" && error ? <p className="daily-log-error">{error}</p> : null}
+      {message ? <p className="daily-log-success">{message}</p> : null}
+      {error ? <p className="daily-log-error">{error}</p> : null}
 
-      {view === "log" && recentIds.length > 0 ? (
+      {recentIds.length > 0 ? (
         <div className="daily-log-recent">
           <h3 className="daily-log-recent-title">Saved days</h3>
           <ul className="daily-log-recent-list">
@@ -530,6 +509,8 @@ export default function DailyLogSection({ onApplyToPlanner, onPredictFromLog, pr
           </ul>
         </div>
       ) : null}
-    </section>
+        </section>
+      </div>
+    </div>
   );
 }

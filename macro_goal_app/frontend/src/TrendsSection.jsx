@@ -44,7 +44,7 @@ function formatDate(id) {
   return `${Number(m)}/${Number(d)}`;
 }
 
-function LineChart({ points, unit }) {
+function LineChart({ points, unit, color = "var(--primary)" }) {
   const width = 640;
   const height = 220;
   const pad = { top: 16, right: 16, bottom: 28, left: 44 };
@@ -117,10 +117,10 @@ function LineChart({ points, unit }) {
         </g>
       ))}
 
-      <path d={path} className="trends-line" fill="none" />
+      <path d={path} className="trends-line" fill="none" stroke={color} />
 
       {points.map((p, i) => (
-        <circle key={i} cx={sx(p.t)} cy={sy(p.y)} r="2.5" className="trends-dot">
+        <circle key={i} cx={sx(p.t)} cy={sy(p.y)} r="2.5" className="trends-dot" fill={color}>
           <title>{`${p.date}: ${p.y.toFixed(1)} ${unit}`}</title>
         </circle>
       ))}
@@ -182,16 +182,33 @@ export default function TrendsSection() {
     () => METRICS.find((m) => m.key === metricKey) || METRICS[0],
     [metricKey]
   );
+
+  const getAvg = (metricKey) => {
+    const m = METRICS.find((x) => x.key === metricKey);
+    const s = seriesFor(m, rows.slice(-7));
+    if (s.length === 0) return null;
+    return s.reduce((a, b) => a + b.y, 0) / s.length;
+  };
+
+  const avgCals = getAvg("total_calories");
+  const avgProtein = getAvg("protein");
+  const avgWeight = getAvg("weight_lbs");
+
   const series = useMemo(() => seriesFor(metric, rows), [metric, rows]);
 
   const stats = useMemo(() => {
     if (series.length === 0) return null;
     const ys = series.map((p) => p.y);
     const mean = ys.reduce((a, b) => a + b, 0) / ys.length;
-    const min = Math.min(...ys);
-    const max = Math.max(...ys);
-    return { n: ys.length, mean, min, max, last: ys[ys.length - 1] };
+    return { n: ys.length, mean, last: ys[ys.length - 1] };
   }, [series]);
+
+  const lineColorForMetric = (key) => {
+    if (key === "total_calories") return "#3b82f6";
+    if (key === "weight_lbs") return "#10b981";
+    if (key === "protein") return "#f59e0b";
+    return "var(--primary)";
+  };
 
   if (!authReady) {
     return <p className="daily-log-muted">Loading account…</p>;
@@ -206,38 +223,71 @@ export default function TrendsSection() {
 
   return (
     <div className="trends-wrap">
-      <div className="trends-metrics" role="tablist" aria-label="Metric">
-        {METRICS.map((m) => (
-          <button
-            key={m.key}
-            type="button"
-            role="tab"
-            aria-selected={m.key === metricKey}
-            className={`trends-metric-btn ${m.key === metricKey ? "active" : ""}`}
-            onClick={() => setMetricKey(m.key)}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
       {loading ? (
         <p className="daily-log-muted">Loading your logs…</p>
       ) : error ? (
         <p className="daily-log-error">{error}</p>
       ) : (
         <>
+          <div className="trends-summary-grid">
+            <div className="trends-summary-card">
+              <span className="trends-summary-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                7-Day Avg Calories
+              </span>
+              <div className="trends-summary-value">
+                {avgCals !== null ? Math.round(avgCals) : "—"}
+                <small>kcal/day</small>
+              </div>
+            </div>
+            <div className="trends-summary-card">
+              <span className="trends-summary-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                7-Day Avg Protein
+              </span>
+              <div className="trends-summary-value">
+                {avgProtein !== null ? Math.round(avgProtein) : "—"}
+                <small>grams/day</small>
+              </div>
+            </div>
+            <div className="trends-summary-card">
+              <span className="trends-summary-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                7-Day Avg Weight
+              </span>
+              <div className="trends-summary-value">
+                {avgWeight !== null ? avgWeight.toFixed(1) : "—"}
+                <small>lbs</small>
+              </div>
+            </div>
+          </div>
+
+          <div className="trends-metrics" role="tablist" aria-label="Choose metric to graph">
+            {METRICS.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                role="tab"
+                aria-selected={m.key === metricKey}
+                className={`trends-metric-btn ${m.key === metricKey ? "active" : ""}`}
+                onClick={() => setMetricKey(m.key)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
           <div className="trends-chart-card">
             <div className="trends-title-row">
               <h3>{metric.label} over time</h3>
               {stats ? (
                 <span className="trends-stats">
-                  n={stats.n} • avg {stats.mean.toFixed(1)} {metric.unit} • last{" "}
-                  {stats.last.toFixed(1)} {metric.unit}
+                  n={stats.n} • avg {stats.mean.toFixed(1)} {metric.unit} • last {stats.last.toFixed(1)}{" "}
+                  {metric.unit}
                 </span>
               ) : null}
             </div>
-            <LineChart points={series} unit={metric.unit} />
+            <LineChart points={series} unit={metric.unit} color={lineColorForMetric(metric.key)} />
           </div>
 
           <div className="trends-table-wrap">

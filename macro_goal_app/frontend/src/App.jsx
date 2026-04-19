@@ -69,6 +69,48 @@ export default function App() {
   const [submittedInputs, setSubmittedInputs] = useState(null);
   const resultRef = useRef(null);
 
+  const renderMacroDistribution = (macros, calories, title) => {
+    const totalMacros = (macros.protein * 4) + (macros.carbs * 4) + (macros.fat * 9);
+    const pPct = totalMacros > 0 ? ((macros.protein * 4) / totalMacros) * 100 : 0;
+    const cPct = totalMacros > 0 ? ((macros.carbs * 4) / totalMacros) * 100 : 0;
+    const fPct = totalMacros > 0 ? ((macros.fat * 9) / totalMacros) * 100 : 0;
+
+    return (
+      <section className="card">
+        <h2>{title}</h2>
+        <div className="donuts-grid">
+          <div className="donut-item">
+            <div className="donut-ring" style={{ "--color": "#3b82f6", "--pct": `${pPct}%` }}>
+              <div className="donut-inner">{Math.round(pPct)}%</div>
+            </div>
+            <div className="donut-label">Protein</div>
+          </div>
+          <div className="donut-item">
+            <div className="donut-ring" style={{ "--color": "#10b981", "--pct": `${cPct}%` }}>
+              <div className="donut-inner">{Math.round(cPct)}%</div>
+            </div>
+            <div className="donut-label">Carbs</div>
+          </div>
+          <div className="donut-item">
+            <div className="donut-ring" style={{ "--color": "#f59e0b", "--pct": `${fPct}%` }}>
+              <div className="donut-inner">{Math.round(fPct)}%</div>
+            </div>
+            <div className="donut-label">Fat</div>
+          </div>
+        </div>
+        <div className="bar-chart-wrap">
+          <div className="bar-chart-row">
+            <div className="bar-chart-label">Calories</div>
+            <div className="bar-chart-track">
+              <div className="bar-chart-fill" style={{ "--color": "#6366f1", width: `${Math.min(100, (calories / 3000) * 100)}%` }} />
+            </div>
+            <div className="bar-chart-value">{calories} kcal</div>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   function onChange(e) {
     const { name, value } = e.target;
     setForm((prev) => {
@@ -184,15 +226,16 @@ export default function App() {
       <header className="header">
         <div className="header-top">
           <div className="header-titles">
-            <h1>NHANES Evidence-Based Macro Planner</h1>
-            <p className="trust-line">Based on NHANES data</p>
+            <h1 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color: "var(--primary)"}}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              NHANES Evidence-Based Macro Planner
+            </h1>
+            <p className="trust-line" style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
+              Based on NHANES.usda | Personalized nutrition recommendations based on NHANES 2021-2023 statistical models (n=9,751)
+            </p>
           </div>
           <AuthBar />
         </div>
-        <p className="subtitle">
-          Personalized nutrition recommendations based on NHANES 2021-2023 statistical models (n=6,751).
-          Choose your health goal and receive evidence-based macro targets.
-        </p>
       </header>
 
       <div className="app-view-switch" role="tablist" aria-label="Main app views">
@@ -203,7 +246,7 @@ export default function App() {
           className={`app-view-btn ${activeScreen === "plan" ? "active" : ""}`}
           onClick={() => setActiveScreen("plan")}
         >
-          Plan & Analysis
+          Plan & Analyze
         </button>
         <button
           type="button"
@@ -237,9 +280,10 @@ export default function App() {
           predictFromLogLoading={loading && planSource === "logs"}
         />
       ) : (
-        <>
-      <form onSubmit={onSubmitPlanner} className="form-stack">
-        <section className="section-card form-section">
+        <div className="layout-grid">
+          <div className="layout-sidebar">
+            <form onSubmit={onSubmitPlanner} className="form-stack">
+              <section className="section-card form-section">
           <SectionHeader
             title="Your Profile"
             icon={
@@ -462,10 +506,12 @@ export default function App() {
           {loading ? "Generating your plan…" : "Generate Macro Plan"}
         </button>
       </form>
+    </div>
 
+    <div className={`layout-main ${!result?.recommended ? 'layout-main--sticky' : ''}`}>
       {error && <div className="card error-card"><p className="error">{error}</p></div>}
 
-      {result?.recommended && (
+      {result?.recommended ? (
         <>
           <section className="card result-header" ref={resultRef}>
             <h2>Your Plan: {result.goal_name}</h2>
@@ -558,6 +604,9 @@ export default function App() {
             )}
           </section>
 
+          {renderMacroDistribution(currentMacros, result.profile.current_calories, "Your Current Macro Distribution")}
+          {renderMacroDistribution(result.recommended, result.profile.target_calories, "Recommended Macro Distribution")}
+
           <section className="card">
             <h2>Recommended Daily Macros</h2>
             <div className="macro-comparison">
@@ -629,9 +678,26 @@ export default function App() {
             </div>
           </section>
         </>
-      )}
+      ) : (
+        <>
+          <section className="card empty-state-card">
+            <div className="empty-state-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
+                <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
+              </svg>
+            </div>
+            <h2>Ready to build your plan?</h2>
+            <p className="text-muted" style={{ fontSize: "0.95rem", lineHeight: "1.6" }}>
+              Fill out your profile and current diet on the left. As you type, your current macro distribution will update below. Click <strong>Generate Macro Plan</strong> when you're ready to see your personalized, evidence-based recommendations.
+            </p>
+          </section>
+          {renderMacroDistribution(form, form.total_calories, "Your Current Macro Distribution")}
         </>
       )}
+    </div>
+  </div>
+)}
     </main>
   );
 }

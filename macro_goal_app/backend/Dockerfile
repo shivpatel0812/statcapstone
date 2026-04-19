@@ -16,7 +16,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN Rscript -e 'install.packages(c("survey", "car"), repos="https://cloud.r-project.org")'
+# Rocker `r-ver` sets CRAN to Posit prebuilt binaries for this image’s Ubuntu.
+# Passing only `cloud.r-project.org` forces long source compiles and often hits Railway’s build timeout.
+RUN Rscript -e 'options(Ncpus = min(8L, max(1L, parallel::detectCores()))); install.packages(c("survey", "car"), verbose = TRUE)'
 
 COPY . .
 
