@@ -1,8 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
 import AuthBar from "./AuthBar";
 import DailyLogSection from "./DailyLogSection";
+import { useAuth } from "./AuthContext";
+import { getFirestoreDb, isFirebaseConfigured } from "./firebase";
 import { GOALS } from "./healthGoals";
 import { kgToLbs, lbsToKg } from "./weightUnits";
+import { analyzeAllTrends, isAlreadyImproving } from "./trendAnalysis";
 
 // Vercel: set VITE_API_URL to your Railway URL, e.g. https://your-app.up.railway.app (no trailing slash)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -58,8 +62,45 @@ const INITIAL = {
 
 const TEXT_FIELDS = new Set(["goal", "sex", "time_range"]);
 
+function isValidDailyLogDocId(id) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(id);
+}
+
+function medianFinite(values) {
+  const nums = values.map(Number).filter((n) => Number.isFinite(n));
+  if (nums.length === 0) return null;
+  nums.sort((a, b) => a - b);
+  const m = Math.floor(nums.length / 2);
+  if (nums.length % 2 === 1) return nums[m];
+  return (nums[m - 1] + nums[m]) / 2;
+}
+
+/** Median macros + calories across Firestore dailyLogs rows (same idea as “plan from logs”). */
+function logMacroMedianFromRows(rows) {
+  if (!rows.length) return null;
+  const p = medianFinite(rows.map((r) => r.protein));
+  const c = medianFinite(rows.map((r) => r.carbs));
+  const f = medianFinite(rows.map((r) => r.fat));
+  const cal = medianFinite(rows.map((r) => r.total_calories));
+  if (p == null && c == null && f == null) return null;
+  const pN = p ?? 0;
+  const cN = c ?? 0;
+  const fN = f ?? 0;
+  const implied = 4 * pN + 4 * cN + 9 * fN;
+  return {
+    protein: pN,
+    carbs: cN,
+    fat: fN,
+    total_calories: cal != null ? cal : implied,
+    n: rows.length,
+  };
+}
+
 export default function App() {
+  const { user, authReady } = useAuth();
   const [form, setForm] = useState(INITIAL);
+  const [logMacroMedian, setLogMacroMedian] = useState(null);
+  const [trends, setTrends] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -69,43 +110,166 @@ export default function App() {
   const [submittedInputs, setSubmittedInputs] = useState(null);
   const resultRef = useRef(null);
 
-  const renderMacroDistribution = (macros, calories, title) => {
-    const totalMacros = (macros.protein * 4) + (macros.carbs * 4) + (macros.fat * 9);
-    const pPct = totalMacros > 0 ? ((macros.protein * 4) / totalMacros) * 100 : 0;
-    const cPct = totalMacros > 0 ? ((macros.carbs * 4) / totalMacros) * 100 : 0;
-    const fPct = totalMacros > 0 ? ((macros.fat * 9) / totalMacros) * 100 : 0;
+  useEffect(() => {
+    if (!authReady || !user || !isFirebaseConfigured()) {
+      setLogMacroMedian(null);
+      setTrends(null);
+      return;
+    }
+    if (activeScreen !== "plan") return;
+    const db = getFirestoreDb();
+    if (!db) {
+      setLogMacroMedian(null);
+      setTrends(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const col = collection(db, "users", user.uid, "dailyLogs");
+        const snap = await getDocs(col);
+        const rows = [];
+        snap.forEach((d) => {
+          if (!isValidDailyLogDocId(d.id)) return;
+          rows.push({ id: d.id, date: d.id, ...d.data() });
+        });
+        const med = logMacroMedianFromRows(rows);
+        const trendData = analyzeAllTrends(rows);
+        if (!cancelled) {
+          setLogMacroMedian(med);
+          setTrends(trendData);
+        }
+      } catch {
+        if (!cancelled) {
+          setLogMacroMedian(null);
+          setTrends(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, user, activeScreen]);
+
+  const renderMacroDistribution = (macros, calories, title, distributionMeta) => {
+    const pG = Number(macros?.protein);
+    const cG = Number(macros?.carbs);
+    const fG = Number(macros?.fat);
+    const p = Number.isFinite(pG) ? pG : 0;
+    const c = Number.isFinite(cG) ? cG : 0;
+    const f = Number.isFinite(fG) ? fG : 0;
+
+    const fmtG = (n) => {
+      if (!Number.isFinite(n) || n < 0) return "—";
+      const r = Math.round(n * 10) / 10;
+      return Math.abs(r - Math.round(r)) < 1e-6 ? String(Math.round(r)) : r.toFixed(1);
+    };
+
+    // Calories from macros only (Atwater): used for the ring — share of kcal from P vs C vs F.
+    const kcalP = p * 4;
+    const kcalC = c * 4;
+    const kcalF = f * 9;
+    const totalMacroKcal = kcalP + kcalC + kcalF;
+    const pPct = totalMacroKcal > 0 ? (kcalP / totalMacroKcal) * 100 : 0;
+    const cPct = totalMacroKcal > 0 ? (kcalC / totalMacroKcal) * 100 : 0;
+    const fPct = totalMacroKcal > 0 ? (kcalF / totalMacroKcal) * 100 : 0;
+
+    const calNum = Number(calories);
+    /** Bar fill only: length scales to this many kcal = 100% width (not nutrition science, just layout). */
+    const calorieBarScaleKcal = 3000;
+    const barFillPct =
+      Number.isFinite(calNum) && calNum > 0
+        ? Math.min(100, Math.round((calNum / calorieBarScaleKcal) * 100))
+        : 0;
+
+    const fromLogs = distributionMeta?.fromLogs && distributionMeta?.logDays > 0;
 
     return (
       <section className="card">
         <h2>{title}</h2>
+        {fromLogs ? (
+          <p className="macro-distro-source">
+            Median from <strong>{distributionMeta.logDays}</strong> saved day{distributionMeta.logDays === 1 ? "" : "s"}{" "}
+            in Daily Log (signed in). Planner fields on the left stay independent until you generate a plan.
+          </p>
+        ) : null}
+        <p className="macro-distro-note">
+          Each ring is that macro{"'"}s share of calories from <strong>protein + carbs + fat only</strong>, using 4
+          kcal/g (P and C) and 9 kcal/g (F). Sugar and fiber are not part of this split.
+          {totalMacroKcal > 0 ? (
+            <>
+              {" "}
+              Those grams add up to about <strong>{Math.round(totalMacroKcal)} kcal</strong> from P+C+F.
+            </>
+          ) : null}
+          {Number.isFinite(calNum) && calNum > 0 ? (
+            <>
+              {" "}
+              The bar shows the same <strong>total daily calories</strong> you track or target (
+              <strong>{Math.round(calNum)} kcal</strong>). Its length is only a visual scale (full bar ≈{" "}
+              {calorieBarScaleKcal} kcal), not a share of the rings—the rings ignore sugar, fiber, and alcohol and only
+              split P/C/F grams into kcal.
+            </>
+          ) : null}
+        </p>
         <div className="donuts-grid">
           <div className="donut-item">
             <div className="donut-ring" style={{ "--color": "#3b82f6", "--pct": `${pPct}%` }}>
               <div className="donut-inner">{Math.round(pPct)}%</div>
             </div>
-            <div className="donut-label">Protein</div>
+            <div className="donut-label">
+              <span className="donut-label-title">Protein</span>
+              <span className="donut-label-grams">{fmtG(p)} g</span>
+            </div>
           </div>
           <div className="donut-item">
             <div className="donut-ring" style={{ "--color": "#10b981", "--pct": `${cPct}%` }}>
               <div className="donut-inner">{Math.round(cPct)}%</div>
             </div>
-            <div className="donut-label">Carbs</div>
+            <div className="donut-label">
+              <span className="donut-label-title">Carbs</span>
+              <span className="donut-label-grams">{fmtG(c)} g</span>
+            </div>
           </div>
           <div className="donut-item">
             <div className="donut-ring" style={{ "--color": "#f59e0b", "--pct": `${fPct}%` }}>
               <div className="donut-inner">{Math.round(fPct)}%</div>
             </div>
-            <div className="donut-label">Fat</div>
+            <div className="donut-label">
+              <span className="donut-label-title">Fat</span>
+              <span className="donut-label-grams">{fmtG(f)} g</span>
+            </div>
           </div>
         </div>
         <div className="bar-chart-wrap">
           <div className="bar-chart-row">
-            <div className="bar-chart-label">Calories</div>
-            <div className="bar-chart-track">
-              <div className="bar-chart-fill" style={{ "--color": "#6366f1", width: `${Math.min(100, (calories / 3000) * 100)}%` }} />
+            <div className="bar-chart-label bar-chart-label--calories">
+              <span className="bar-chart-label-title">Calories</span>
+              <span className="bar-chart-label-kcal">
+                {Number.isFinite(Number(calories)) ? `${Math.round(Number(calories))} kcal` : "—"}
+              </span>
             </div>
-            <div className="bar-chart-value">{calories} kcal</div>
+            <div className="bar-chart-track">
+              <div
+                className="bar-chart-fill"
+                style={{
+                  "--color": "#6366f1",
+                  width: `${barFillPct}%`,
+                }}
+              />
+            </div>
           </div>
+          {Number.isFinite(calNum) && calNum > 0 ? (
+            <p className="bar-chart-caption">
+              About <strong>{barFillPct}%</strong> filled means{" "}
+              <strong>
+                {Math.round(calNum)} ÷ {calorieBarScaleKcal} kcal
+              </strong>{" "}
+              as a ruler for this bar only (full width = {calorieBarScaleKcal} kcal). It is{" "}
+              <em>not</em> “{barFillPct}% of your calories from protein/carbs/fat,” and it is not a goal or limit—just
+              how wide the purple fill is drawn.
+            </p>
+          ) : null}
         </div>
       </section>
     );
@@ -168,7 +332,40 @@ export default function App() {
         sex: rest.sex,
       });
 
+      // Add trend data if available
       const payload = { ...rest, weight_kg: resolvedKg };
+
+      if (trends) {
+        // Include trend parameters for backend
+        payload.trend_protein_slope = trends.protein?.slope || 0;
+        payload.trend_protein_direction = trends.protein?.direction || "stable";
+        payload.trend_weight_slope = trends.weight_kg?.slope || 0;
+        payload.trend_weight_direction = trends.weight_kg?.direction || "stable";
+        payload.trend_fiber_slope = trends.fiber?.slope || 0;
+        payload.trend_sugar_slope = trends.sugar?.slope || 0;
+        payload.trend_calories_slope = trends.total_calories?.slope || 0;
+        payload.trend_activity_slope = trends.activity_min?.slope || 0;
+        payload.trend_data_points = trends.protein?.data_points || 0;
+        payload.trend_recent_data_points = trends.protein?.recent_data_points || 0;
+        payload.trend_variance_protein = trends.protein?.variance || 0;
+        payload.trend_variance_weight = trends.weight_kg?.variance || 0;
+        payload.is_already_improving = isAlreadyImproving(trends, rest.goal);
+      } else {
+        // No trend data available (no logs or not logged in)
+        payload.trend_protein_slope = 0;
+        payload.trend_protein_direction = "stable";
+        payload.trend_weight_slope = 0;
+        payload.trend_weight_direction = "stable";
+        payload.trend_fiber_slope = 0;
+        payload.trend_sugar_slope = 0;
+        payload.trend_calories_slope = 0;
+        payload.trend_activity_slope = 0;
+        payload.trend_data_points = 0;
+        payload.trend_recent_data_points = 0;
+        payload.trend_variance_protein = 0;
+        payload.trend_variance_weight = 0;
+        payload.is_already_improving = false;
+      }
 
       const res = await fetch(API_URL, {
         method: "POST",
@@ -228,10 +425,10 @@ export default function App() {
           <div className="header-titles">
             <h1 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color: "var(--primary)"}}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-              NHANES Evidence-Based Macro Planner
+              CDC NHANES–based Macro Planner
             </h1>
             <p className="trust-line" style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
-              Based on NHANES.usda | Personalized nutrition recommendations based on NHANES 2021-2023 statistical models (n=9,751)
+              Based on CDC NHANES public-use data | Personalized nutrition recommendations from survey-weighted models fit to NHANES 2021-2023 cycles
             </p>
           </div>
           <AuthBar />
@@ -548,7 +745,7 @@ export default function App() {
                   {result.profile.calorie_change !== undefined && (
                     <span className={`change ${result.profile.calorie_change > 0 ? "positive" : "negative"}`}>
                       {result.profile.calorie_change > 0 ? "+" : ""}
-                      {result.profile.calorie_change}
+                      {result.profile.calorie_change} kcal
                     </span>
                   )}
                 </span>
@@ -657,9 +854,9 @@ export default function App() {
           </section>
 
           <section className="card benefits-card">
-            <h2>Evidence from NHANES Models</h2>
+            <h2>Evidence from CDC NHANES models</h2>
             <p className="benefits-intro">
-              These recommendations are based on statistical models from 6,751 participants:
+              These recommendations are drawn from survey-weighted statistical models fit to national NHANES data (CDC):
             </p>
             <ul className="benefits-list">
               {result.health_benefits.split(" | ").map((benefit, idx) => (
@@ -671,7 +868,7 @@ export default function App() {
           <section className="card note-card">
             <p className="note-text">{result.note}</p>
             <div className="citation">
-              <strong>Data Source:</strong> National Health and Nutrition Examination Survey (NHANES) 2021-2023.
+              <strong>Data Source:</strong> National Health and Nutrition Examination Survey (NHANES), Centers for Disease Control and Prevention (CDC), 2021-2023 cycles.
               Survey-weighted regression models account for complex sampling design.
               <br />
               <strong>Key Finding:</strong> Macro composition (fiber, protein×activity) matters more than total calorie intake alone.
@@ -689,10 +886,25 @@ export default function App() {
             </div>
             <h2>Ready to build your plan?</h2>
             <p className="text-muted" style={{ fontSize: "0.95rem", lineHeight: "1.6" }}>
-              Fill out your profile and current diet on the left. As you type, your current macro distribution will update below. Click <strong>Generate Macro Plan</strong> when you're ready to see your personalized, evidence-based recommendations.
+              Fill out your profile and current diet on the left. When you are signed in and have Daily Log entries, the
+              macro chart uses their <strong>median</strong> (same idea as{" "}
+              <strong>Generate plan from all my logs</strong>); otherwise it
+              follows the diet numbers on the left. Click <strong>Generate Macro Plan</strong> when you are ready for
+              recommendations.
             </p>
           </section>
-          {renderMacroDistribution(form, form.total_calories, "Your Current Macro Distribution")}
+          {renderMacroDistribution(
+            logMacroMedian
+              ? {
+                  protein: logMacroMedian.protein,
+                  carbs: logMacroMedian.carbs,
+                  fat: logMacroMedian.fat,
+                }
+              : form,
+            logMacroMedian ? logMacroMedian.total_calories : form.total_calories,
+            "Your Current Macro Distribution",
+            logMacroMedian ? { fromLogs: true, logDays: logMacroMedian.n } : null
+          )}
         </>
       )}
     </div>

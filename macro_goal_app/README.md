@@ -2,7 +2,7 @@
 
 - **Frontend:** `macro_goal_app/frontend` — React (Vite)
 - **Backend:** `macro_goal_app/backend` — FastAPI + R (`recommend_macros.R`)
-- **R analysis:** `macro_goal_app/backend/Rcode` — same NHANES modules as the capstone (`00`–`06`)
+- **R analysis:** `macro_goal_app/backend/Rcode` — same CDC NHANES modules as the capstone (`00`–`06`)
 - **Data:** `macro_goal_app/backend/python_code/combined_data.csv` — copy used so the backend folder is self-contained for deploy (e.g. Railway)
 
 ## Layout

@@ -22,6 +22,21 @@ class MacroInput(BaseModel):
     goal: str = Field(..., description="Health goal: lose_weight, gain_weight, build_muscle, improve_cholesterol, improve_glucose, reduce_bmi, reduce_waist, general_health")
     time_range: str = Field(default="general", description="Time range: general, 3_months, 6_months, 12_months")
 
+    # Trend analysis parameters (optional, default to 0/stable if not provided)
+    trend_protein_slope: float = Field(default=0, description="Rate of change in protein (g/day)")
+    trend_protein_direction: str = Field(default="stable", description="Protein trend direction: increasing, decreasing, stable")
+    trend_weight_slope: float = Field(default=0, description="Rate of change in weight (kg/day)")
+    trend_weight_direction: str = Field(default="stable", description="Weight trend direction: increasing, decreasing, stable")
+    trend_fiber_slope: float = Field(default=0, description="Rate of change in fiber (g/day)")
+    trend_sugar_slope: float = Field(default=0, description="Rate of change in sugar (g/day)")
+    trend_calories_slope: float = Field(default=0, description="Rate of change in calories (kcal/day)")
+    trend_activity_slope: float = Field(default=0, description="Rate of change in activity (min/day)")
+    trend_data_points: int = Field(default=0, ge=0, description="Total number of logged days")
+    trend_recent_data_points: int = Field(default=0, ge=0, description="Number of recent logged days (last 30)")
+    trend_variance_protein: float = Field(default=0, ge=0, description="Variance in protein intake")
+    trend_variance_weight: float = Field(default=0, ge=0, description="Variance in weight")
+    is_already_improving: bool = Field(default=False, description="Whether user is already trending toward goal")
+
 
 app = FastAPI(title="Macro Goal Adjuster API")
 
@@ -89,6 +104,20 @@ def recommend(payload: MacroInput) -> dict:
         goal,
         time_range,
         str(payload.total_calories),
+        # Trend parameters
+        str(payload.trend_protein_slope),
+        str(payload.trend_protein_direction),
+        str(payload.trend_weight_slope),
+        str(payload.trend_weight_direction),
+        str(payload.trend_fiber_slope),
+        str(payload.trend_sugar_slope),
+        str(payload.trend_calories_slope),
+        str(payload.trend_activity_slope),
+        str(payload.trend_data_points),
+        str(payload.trend_recent_data_points),
+        str(payload.trend_variance_protein),
+        str(payload.trend_variance_weight),
+        str(payload.is_already_improving).lower(),  # Convert boolean to "true"/"false"
     ]
 
     result = subprocess.run(

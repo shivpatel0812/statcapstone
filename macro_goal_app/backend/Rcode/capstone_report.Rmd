@@ -1,6 +1,8 @@
 ---
 title: "STAT Capstone Report"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "`r Sys.Date()`"
 ---
 
@@ -10,24 +12,52 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 ## Overview
 
-This report runs the modular R analysis pipeline and presents key model outputs.
+This report runs the modular R analysis pipeline in **numeric order** (`00` → `05`), plus optional `07` poster outputs.  
+Each step below calls `source()` on one script file, which executes **every top-level statement** in that file in order (package loads, `ROOT` / paths, function definitions, and any other non-function code).  
+Code **inside** functions then runs when the later chunks call `run_*()` (same as running the scripts interactively line-by-line up to each function, then invoking those functions).
 
-```{r load-modules}
+**Knit this file with the working directory set to** `macro_goal_app/backend/Rcode` (RStudio: *Knit* from the Rmd’s folder, or `setwd()` before `rmarkdown::render()`).
+
+---
+
+## Pipeline: source `00`–`05` (full file execution each)
+
+```{r rcode-00-project-setup}
 source("00_project_setup.R")
-source("01_data_prep.R")
-source("02_audit_vif_main.R")
-source("03_interaction_models.R")
-source("04_body_composition_models.R")
-source("05_race_income_models_modular.R")
+```
 
+```{r rcode-01-data-prep}
+source("01_data_prep.R")
+```
+
+```{r rcode-02-audit-vif-main}
+source("02_audit_vif_main.R")
+```
+
+```{r rcode-03-interaction-models}
+source("03_interaction_models.R")
+```
+
+```{r rcode-04-body-composition}
+source("04_body_composition_models.R")
+```
+
+```{r rcode-05-race-income}
+source("05_race_income_models_modular.R")
+```
+
+```{r build-data-and-design}
 data <- prepare_data()
 design <- make_design(data)
 ```
+
+---
 
 ## 1) Missingness, VIF, and Main Effects
 
 ```{r main-effects}
 main_res <- run_audit_vif_main(data, design, make_plots = TRUE)
+source("07_poster_tables_plots.R")
 ```
 
 ## 2) Interaction Models
@@ -51,4 +81,6 @@ race_income_res <- run_race_income_models(data, design)
 ## Notes
 
 - Core analysis scripts are kept as modular `.R` files for reuse and debugging.
-- This `.Rmd` is the presentation/report layer that executes those modules.
+- This `.Rmd` is the presentation/report layer: it **sources** `00`–`05` sequentially, then calls the main entry-point functions above. After main effects, `07_poster_tables_plots.R` writes one-page tables and plots to `Rcode/poster_output/`.
+- `01_data_prep.R` begins by sourcing `00_project_setup.R` again (so `00` runs twice when you knit); that is harmless and keeps `01` usable on its own.
+- The live API uses `recommend_macros.R`, which sources a slightly different set (includes `06_calorie_models.R`, omits `05`); see that script for deployment behavior.

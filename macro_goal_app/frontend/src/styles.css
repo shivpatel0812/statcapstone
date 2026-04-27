@@ -233,10 +233,47 @@ body {
 }
 
 .donut-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
   text-align: center;
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-muted);
+}
+
+.donut-label-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.donut-label-grams {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--heading);
+  letter-spacing: -0.01em;
+}
+
+.macro-distro-source {
+  margin: 0 0 0.65rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.macro-distro-note {
+  margin: 0 0 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.macro-distro-note strong {
+  color: var(--heading);
+  font-weight: 600;
 }
 
 .donuts-grid {
@@ -258,14 +295,32 @@ body {
 }
 
 .bar-chart-label {
-  width: 60px;
+  flex-shrink: 0;
+}
+
+.bar-chart-label--calories {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 6.75rem;
+}
+
+.bar-chart-label-title {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-muted);
 }
 
+.bar-chart-label-kcal {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
 .bar-chart-track {
   flex: 1;
+  min-width: 0;
   height: 12px;
   background: var(--border);
   border-radius: 6px;
@@ -279,11 +334,11 @@ body {
   transition: width 0.3s ease;
 }
 
-.bar-chart-value {
-  width: 50px;
-  text-align: right;
-  font-size: 0.85rem;
-  font-weight: 600;
+.bar-chart-caption {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-muted);
 }
 
 /* Form stack: spaced sections */

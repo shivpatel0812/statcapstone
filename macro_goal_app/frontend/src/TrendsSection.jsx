@@ -282,7 +282,7 @@ export default function TrendsSection() {
               <h3>{metric.label} over time</h3>
               {stats ? (
                 <span className="trends-stats">
-                  n={stats.n} • avg {stats.mean.toFixed(1)} {metric.unit} • last {stats.last.toFixed(1)}{" "}
+                  {stats.n} logged days • avg {stats.mean.toFixed(1)} {metric.unit} • last {stats.last.toFixed(1)}{" "}
                   {metric.unit}
                 </span>
               ) : null}

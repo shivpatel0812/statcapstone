@@ -1,16 +1,16 @@
 #!/usr/bin/env Rscript
 
 # ==============================================================================
-# NHANES Evidence-Based Macro Recommender
+# CDC NHANES evidence-based macro recommender
 # ==============================================================================
-# Uses actual regression coefficients from NHANES 2021-2023 models
+# Uses regression coefficients from survey-weighted models fit to NHANES 2021-2023 (CDC)
 # Optimizes macros for specific health outcomes based on statistical evidence
 # ==============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 14) {
-  stop("Usage: Rscript recommend_macros.R protein carbs fat sugar fiber sex weight_kg height_cm sleep_hours activity_min sedentary_min goal time_range total_calories")
+if (length(args) < 27) {
+  stop("Usage: Rscript recommend_macros.R protein carbs fat sugar fiber sex weight_kg height_cm sleep_hours activity_min sedentary_min goal time_range total_calories [trend_params...]")
 }
 
 # Parse inputs
@@ -35,8 +35,23 @@ if (length(user_logged_calories) == 0 || is.na(user_logged_calories) || user_log
   stop("total_calories must be a non-negative number")
 }
 
+# Parse trend parameters (added for history-aware predictions)
+trend_protein_slope <- as.numeric(args[15])
+trend_protein_direction <- tolower(args[16])
+trend_weight_slope <- as.numeric(args[17])
+trend_weight_direction <- tolower(args[18])
+trend_fiber_slope <- as.numeric(args[19])
+trend_sugar_slope <- as.numeric(args[20])
+trend_calories_slope <- as.numeric(args[21])
+trend_activity_slope <- as.numeric(args[22])
+trend_data_points <- as.integer(args[23])
+trend_recent_data_points <- as.integer(args[24])
+trend_variance_protein <- as.numeric(args[25])
+trend_variance_weight <- as.numeric(args[26])
+is_already_improving <- tolower(args[27]) == "true"
+
 # ==============================================================================
-# Load NHANES model results
+# Load CDC NHANES model results
 # ==============================================================================
 # cwd is macro_goal_app/backend (see app.py subprocess cwd)
 backend_dir <- normalizePath(getwd(), mustWork = TRUE)
@@ -108,11 +123,54 @@ goal_name <- switch(goal,
 coef_target <- coef(target_model)
 
 # ==============================================================================
+# Trend-aware adjustments (history-based personalization)
+# ==============================================================================
+# Determines how aggressive recommendations should be based on user's trajectory
+
+has_sufficient_data <- trend_data_points >= 5  # Need at least 5 logged days for trends
+has_recent_data <- trend_recent_data_points >= 3  # At least 3 recent logs
+
+# Calculate adherence quality (low variance = consistent tracking)
+adherence_quality <- if (has_sufficient_data && trend_variance_protein > 0) {
+  # Low variance = high adherence (consistent behavior)
+  # High variance = low adherence (inconsistent behavior)
+  cv_protein <- sqrt(trend_variance_protein) / max(protein, 1)  # Coefficient of variation
+  if (cv_protein < 0.15) "high" else if (cv_protein < 0.30) "medium" else "low"
+} else {
+  "unknown"
+}
+
+# Adjustment multiplier based on trends
+trend_adjustment <- 1.0  # Default: no adjustment
+
+if (is_already_improving && has_sufficient_data) {
+  # User is already trending in right direction - less aggressive changes
+  trend_adjustment <- 0.6
+} else if (adherence_quality == "low" && has_sufficient_data) {
+  # User has high variance - more conservative targets (easier to achieve)
+  trend_adjustment <- 0.7
+} else if (!has_sufficient_data) {
+  # No history - use standard recommendations
+  trend_adjustment <- 1.0
+}
+
+# ==============================================================================
 # Evidence-based macro recommendations using ACTUAL coefficients
 # ==============================================================================
 
 recommendations <- list()
 evidence <- c()
+
+# Add trend context to evidence if available
+if (has_sufficient_data) {
+  if (is_already_improving) {
+    evidence <- c(evidence, sprintf("History analysis (%d days): You're already trending toward your goal - maintaining moderate adjustments", trend_data_points))
+  } else if (adherence_quality == "low") {
+    evidence <- c(evidence, sprintf("History analysis (%d days): High variability detected - using conservative targets for better adherence", trend_data_points))
+  } else {
+    evidence <- c(evidence, sprintf("History analysis (%d days): Consistent tracking detected - personalized recommendations based on your patterns", trend_data_points))
+  }
+}
 
 # --- FIBER: Strong evidence across all models ---
 # Fiber has negative (protective) coefficient for BMI (p<0.001) and waist (p=0.002)
@@ -120,16 +178,24 @@ if (!is.na(coef_target["total_fiber"]) && coef_target["total_fiber"] < 0) {
   # Fiber is protective for this outcome
   fiber_coef <- coef_target["total_fiber"]
 
-  if (fiber < 25) {
+  # Check if fiber is already improving via trends
+  fiber_improving <- has_sufficient_data && trend_fiber_slope > 0.05  # Increasing by >0.05g/day
+
+  if (fiber < 25 && !fiber_improving) {
     target_fiber <- 30  # Evidence-based recommendation
-    fiber_increase <- target_fiber - fiber
+    fiber_increase <- (target_fiber - fiber) * trend_adjustment  # Apply trend adjustment
+    target_fiber <- fiber + fiber_increase
 
     # Calculate expected benefit using actual coefficient
     expected_benefit <- fiber_increase * fiber_coef
 
     recommendations$fiber <- target_fiber
-    evidence <- c(evidence, sprintf("Increase fiber to %dg (from %dg) - associated with %.2f unit improvement in %s based on NHANES coefficient",
+    evidence <- c(evidence, sprintf("Increase fiber to %.0fg (from %dg) - associated with %.2f unit improvement in %s based on CDC NHANES model coefficient",
                                    target_fiber, round(fiber), abs(expected_benefit), goal_name))
+  } else if (fiber_improving) {
+    # User is already increasing fiber - maintain current trajectory
+    recommendations$fiber <- max(fiber, 25)
+    evidence <- c(evidence, sprintf("Fiber trending upward (%.2fg/day increase) - continue current trajectory", trend_fiber_slope))
   } else {
     recommendations$fiber <- max(fiber, 25)
   }
@@ -137,12 +203,20 @@ if (!is.na(coef_target["total_fiber"]) && coef_target["total_fiber"] < 0) {
   recommendations$fiber <- fiber
 }
 
-# --- SUGAR: Cap based on evidence ---
+# --- SUGAR: Cap based on evidence, account for trends ---
 # Sugar shows varying effects; cap at 45g for metabolic health
+sugar_improving <- has_sufficient_data && trend_sugar_slope < -0.1  # Decreasing by >0.1g/day
+
 target_sugar <- sugar
-if (sugar > 50) {
-  target_sugar <- 45
-  evidence <- c(evidence, "Reduce sugar to 45g for metabolic health")
+if (sugar > 50 && !sugar_improving) {
+  # High sugar and not improving - recommend reduction
+  sugar_reduction <- (sugar - 45) * trend_adjustment
+  target_sugar <- sugar - sugar_reduction
+  evidence <- c(evidence, sprintf("Reduce sugar to %.0fg for metabolic health", target_sugar))
+} else if (sugar > 50 && sugar_improving) {
+  # High sugar but already decreasing - acknowledge progress
+  target_sugar <- sugar  # Maintain current trajectory
+  evidence <- c(evidence, sprintf("Sugar trending downward (%.2fg/day) - continue reducing toward 45g target", trend_sugar_slope))
 } else if (sugar > 45 && !is.na(sleep_hours) && sleep_hours < 6.5) {
   target_sugar <- 40
   evidence <- c(evidence, "Reduce sugar to 40g (poor sleep exacerbates sugar effects)")
@@ -190,6 +264,9 @@ if (goal %in% c("improve_glucose", "improve_cholesterol", "build_muscle")) {
 base_protein <- protein
 protein_target <- protein
 
+# Check if protein is already trending upward
+protein_improving <- has_sufficient_data && trend_protein_direction == "increasing"
+
 if (goal %in% c("build_muscle", "lose_weight")) {
   # Check for protein×activity interaction (from interaction models)
   use_interaction <- FALSE
@@ -203,13 +280,31 @@ if (goal %in% c("build_muscle", "lose_weight")) {
     # Active people benefit MORE from higher protein (lean mass effect)
     if (goal == "build_muscle") {
       protein_floor <- ifelse(sex == "male", 1.8, 1.6) * weight_kg
-      protein_target <- max(protein * 1.25, protein_floor)
-      evidence <- c(evidence, sprintf("Increase protein to %.0fg (%.1fg/kg) - protein×activity interaction (p=0.020) supports lean mass gain",
-                                     protein_target, protein_target/weight_kg))
+      raw_target <- max(protein * 1.25, protein_floor)
+
+      # Apply trend adjustment if user is already increasing protein
+      if (protein_improving) {
+        protein_increase <- (raw_target - protein) * trend_adjustment
+        protein_target <- protein + protein_increase
+        evidence <- c(evidence, sprintf("Protein already trending upward (%.1fg/day) - moderate increase to %.0fg (%.1fg/kg) to support lean mass",
+                                       trend_protein_slope, protein_target, protein_target/weight_kg))
+      } else {
+        protein_target <- raw_target
+        evidence <- c(evidence, sprintf("Increase protein to %.0fg (%.1fg/kg) - protein×activity interaction (p=0.020) supports lean mass gain",
+                                       protein_target, protein_target/weight_kg))
+      }
     } else if (goal == "lose_weight") {
       protein_floor <- ifelse(sex == "male", 1.6, 1.4) * weight_kg
-      protein_target <- max(protein * 1.15, protein_floor)
-      evidence <- c(evidence, "Increase protein to preserve lean mass during weight loss (protein×activity interaction)")
+      raw_target <- max(protein * 1.15, protein_floor)
+
+      if (protein_improving) {
+        protein_increase <- (raw_target - protein) * trend_adjustment
+        protein_target <- protein + protein_increase
+        evidence <- c(evidence, sprintf("Protein trending upward - adjusted target %.0fg to preserve lean mass during weight loss", protein_target))
+      } else {
+        protein_target <- raw_target
+        evidence <- c(evidence, "Increase protein to preserve lean mass during weight loss (protein×activity interaction)")
+      }
     }
   } else if (goal == "build_muscle") {
     # Sedentary muscle gain (less efficient)
@@ -230,7 +325,7 @@ if (goal %in% c("build_muscle", "lose_weight")) {
 
 recommendations$protein <- protein_target
 
-# --- CALORIES: Adjust based on goal ---
+# --- CALORIES: Adjust based on goal and weight trends ---
 calorie_multiplier <- switch(goal,
   "lose_weight" = 0.80,
   "reduce_bmi" = 0.80,
@@ -240,8 +335,24 @@ calorie_multiplier <- switch(goal,
   1.00  # Default: maintenance
 )
 
-# Adjust for obesity
-if (!is.na(bmi) && bmi >= 30 && goal %in% c("lose_weight", "reduce_bmi")) {
+# Trend-aware calorie adjustment
+weight_trending_right_direction <- FALSE
+if (has_sufficient_data) {
+  if (goal %in% c("lose_weight", "reduce_bmi", "reduce_waist") && trend_weight_direction == "decreasing") {
+    # Already losing weight - maintain current plan
+    weight_trending_right_direction <- TRUE
+    calorie_multiplier <- 0.95  # Minimal adjustment (already working)
+    evidence <- c(evidence, sprintf("Weight trending downward (%.3f kg/day) - maintaining current calorie level with minor adjustment", trend_weight_slope))
+  } else if (goal %in% c("gain_weight", "build_muscle") && trend_weight_direction == "increasing") {
+    # Already gaining weight - maintain current plan
+    weight_trending_right_direction <- TRUE
+    calorie_multiplier <- 1.05  # Minimal adjustment (already working)
+    evidence <- c(evidence, sprintf("Weight trending upward (%.3f kg/day) - maintaining current calorie level with minor adjustment", trend_weight_slope))
+  }
+}
+
+# Adjust for obesity (if not already trending correctly)
+if (!weight_trending_right_direction && !is.na(bmi) && bmi >= 30 && goal %in% c("lose_weight", "reduce_bmi")) {
   calorie_multiplier <- 0.75  # Larger deficit
 }
 
@@ -335,4 +446,4 @@ cat(sprintf("activity_level=%s\n", activity_level))
 cat(sprintf("goal_name=%s\n", goal_name))
 cat(sprintf("time_range=%s\n", time_note))
 cat(sprintf("health_benefits=%s\n", evidence_summary))
-cat(sprintf("note=Evidence-based %s plan using NHANES 2021-2023 regression coefficients. Recommendations optimized for: %s.\n", time_note, goal_name))
+cat(sprintf("note=Evidence-based %s plan using CDC NHANES 2021-2023 regression coefficients. Recommendations optimized for: %s.\n", time_note, goal_name))

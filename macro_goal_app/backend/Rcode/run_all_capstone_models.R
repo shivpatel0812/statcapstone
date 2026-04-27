@@ -35,4 +35,6 @@ cat("5) Calorie-Only Models (for App)\n")
 cat("============================\n")
 cal_res <- run_calorie_models(data, design)
 
+source("07_poster_tables_plots.R")
+
 cat("\nAll modular analyses complete.\n")
